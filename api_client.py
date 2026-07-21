@@ -13,6 +13,7 @@ from typing import List, Optional
 from io import BytesIO
 from google import genai
 from google.genai import types
+from google.genai.types import FinishReason
 from PIL import Image
 from google.cloud import storage
 from google.cloud.storage.blob import Blob
@@ -67,7 +68,7 @@ class NanoBananaClient:
         input_image_paths: Optional[List[str]] = None,
     ) -> List[Image.Image]:
         """
-        Executes a real-time (on-demand) batchimage generation request,
+        Executes a real-time (on-demand) batch image generation request,
         using Gemini's native multimodal capabilities.
         """
         if not self.client:
@@ -108,9 +109,11 @@ class NanoBananaClient:
 
             candidate = response.candidates[0]
             if not candidate.content or not candidate.content.parts:
-                finish_reason = getattr(candidate, "finish_reason", "UNKNOWN")
+                finish_reason = getattr(
+                    candidate, "finish_reason", FinishReason.FINISH_REASON_UNSPECIFIED
+                )
                 raise RuntimeError(
-                    f"Generation stopped or was blocked. Finish reason: {finish_reason}"
+                    f"Generation stopped or was blocked. Finish reason: {finish_reason.value}"
                 )
 
             for part in candidate.content.parts:
@@ -161,7 +164,6 @@ class NanoBananaClient:
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {
                         "responseModalities": ["IMAGE"],
-                        "responseMimeType": "image/jpeg",  # <-- Force JPEG compression here
                         "imageConfig": {
                             "aspectRatio": aspect_ratio,
                             "imageSize": resolution,

@@ -12,7 +12,7 @@ AVAILABLE_MODELS = [
 ]
 
 RESOLUTIONS = ["1K", "2K", "4K"]
-ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"]
+ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "2:3", "3:2"]
 
 # Estimated cost table in integer cents (1 unit = $0.01)
 # These are baseline estimates for the purpose of calculation.
@@ -21,6 +21,14 @@ COST_TABLE_CENTS = {
     "gemini-3.1-flash-image": {"1K": 3, "2K": 6, "4K": 12},
     "gemini-3-pro-image": {"1K": 6, "2K": 12, "4K": 24},
     "gemini-2.5-flash-image": {"1K": 2, "2K": 4, "4K": 8},
+}
+
+# Estimated cost table for Google Cloud Batch API processing (50% discount applied)
+BATCH_COST_TABLE_CENTS = {
+    "gemini-3.1-flash-lite-image": {"1K": 1, "2K": 1, "4K": 2},
+    "gemini-3.1-flash-image": {"1K": 2, "2K": 3, "4K": 6},
+    "gemini-3-pro-image": {"1K": 3, "2K": 6, "4K": 12},
+    "gemini-2.5-flash-image": {"1K": 1, "2K": 2, "4K": 4},
 }
 
 DB_PATH = "nano_banana_cache.db"

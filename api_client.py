@@ -1,18 +1,21 @@
 """
 api_client.py
-Handles asynchronous interactions with the Nano Banana API via Vertex AI.
+Handles asynchronous interactions with the Nano Banana API
+via Google Cloud AI Platform (formerly Vertex AI).
+Includes decoupled methods for standard Generation and Google Cloud Batch API processing.
 """
 
 import json
 import time
 import asyncio
+import base64
 from typing import List, Optional
 from io import BytesIO
 from google import genai
 from google.genai import types
 from PIL import Image
 from google.cloud import storage
-from google.genai import types
+from google.cloud.storage.blob import Blob
 
 
 class NanoBananaClient:
@@ -64,7 +67,8 @@ class NanoBananaClient:
         input_image_paths: Optional[List[str]] = None,
     ) -> List[Image.Image]:
         """
-        Executes a batch image generation request using Gemini's native multimodal capabilities.
+        Executes a real-time (on-demand) batchimage generation request,
+        using Gemini's native multimodal capabilities.
         """
         if not self.client:
             raise ValueError("API Client not initialized. Please configure Settings.")
@@ -123,7 +127,9 @@ class NanoBananaClient:
         except Exception as e:
             raise RuntimeError(f"API Generation Error: {str(e)}")
 
-    async def generate_images_via_batch(
+    # --- Asynchronous Google Cloud Batch API Helpers ---
+
+    async def submit_batch_job(
         self,
         prompt: str,
         model_name: str,
@@ -131,9 +137,10 @@ class NanoBananaClient:
         resolution: str,
         aspect_ratio: str,
         gcs_bucket_name: str,
-    ) -> List[Image.Image]:
+    ) -> str:
         """
-        Executes an image generation request via the Google Cloud Batch API.
+        Builds the JSONL payload, uploads it to GCS, and triggers the Vertex AI Batch job.
+        Returns the API-generated Job ID[cite: 4, 5].
         """
         if not self.client:
             raise ValueError("API Client not initialized.")
@@ -142,18 +149,16 @@ class NanoBananaClient:
         bucket = storage_client.bucket(gcs_bucket_name)
         timestamp = int(time.time())
 
-        # 1. Prepare the JSONL Input Data
-        # Batch inference expects input in JSON Lines format, where each line is a separate request.
+        # Set up precise routing paths for the Batch input and output folders
         input_file_path = f"batch_inputs/req_{timestamp}.jsonl"
         output_prefix = f"batch_outputs/res_{timestamp}"
 
+        # Construct the exact inline REST payload the model expects[cite: 5]
         lines = []
         for _ in range(batch_size):
-            # Format the request exactly as the model expects it inline
             request_payload = {
                 "request": {
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                    # Pass your configuration matching the GenerateContentConfig structure
                     "generationConfig": {
                         "responseModalities": ["IMAGE"],
                         "imageConfig": {
@@ -167,14 +172,12 @@ class NanoBananaClient:
 
         jsonl_content = "\n".join(lines)
 
-        # 2. Upload Input to Cloud Storage
+        # Upload the JSONL configuration to GCS
         input_blob = bucket.blob(input_file_path)
         input_blob.upload_from_string(jsonl_content)
         gcs_input_uri = f"gs://{gcs_bucket_name}/{input_file_path}"
         gcs_output_uri = f"gs://{gcs_bucket_name}/{output_prefix}"
 
-        # 3. Create the Batch Prediction Job
-        # We use the client.batches.create method to trigger the job.
         config = types.CreateBatchJobConfig(
             dest=gcs_output_uri,
         )
@@ -186,45 +189,71 @@ class NanoBananaClient:
             config=config,
         )
 
-        # 4. Poll for Job Completion
-        # We must periodically check the job state until it completes.
-        while True:
-            job_status = await asyncio.to_thread(
-                self.client.batches.get, name=batch_job.name
-            )
-            if job_status.state in [
-                "JOB_STATE_SUCCEEDED",
-                "JOB_STATE_FAILED",
-                "JOB_STATE_CANCELLED",
-            ]:
-                break
-            await asyncio.sleep(30)  # Poll every 30 seconds
+        # Return the unique job name directly to Gradio for dashboard tracking
+        return batch_job.name
 
-        if job_status.state != "JOB_STATE_SUCCEEDED":
-            raise RuntimeError(f"Batch job ended with status: {job_status.state}")
+    async def get_batch_job_status(self, job_id: str) -> str:
+        """
+        Queries Vertex AI for the current lifecycle state of a specific Batch job[cite: 4].
+        """
+        if not self.client:
+            raise ValueError("API Client not initialized.")
 
-        # 5. Retrieve and Parse Batch Output
+        job_status = await asyncio.to_thread(self.client.batches.get, name=job_id)
+        return job_status.state
+
+    async def download_batch_results(
+        self, job_id: str, gcs_bucket_name: str
+    ) -> List[Image.Image]:
+        """
+        Queries GCS for the output JSONL file associated with a completed job,
+        decodes the base64 output parts, and transforms them into standard PIL Images[cite: 5].
+        """
+        if not self.client:
+            raise ValueError("API Client not initialized.")
+
+        storage_client = storage.Client(project=self.project_id)
+
+        # 1. Fetch the exact job details to extract the destination URI reliably
+        job = await asyncio.to_thread(self.client.batches.get, name=job_id)
+
+        # Extract the destination prefix path where Vertex AI wrote the output files
+        dest_uri = job.dest.gcs_uri
+
+        if dest_uri.startswith(f"gs://{gcs_bucket_name}/"):
+            output_prefix = dest_uri.replace(f"gs://{gcs_bucket_name}/", "")
+        else:
+            # Fallback in case of an unusual SDK structure
+            output_prefix = "batch_outputs/"
+
+        # 2. Iterate through all valid files in the destination path and parse images[cite: 5]
         generated_images = []
         blobs = storage_client.list_blobs(gcs_bucket_name, prefix=output_prefix)
 
+        blob: Blob
         for blob in blobs:
             if blob.name.endswith(".jsonl"):
                 content = blob.download_as_text()
                 for line in content.strip().split("\n"):
                     if not line:
                         continue
-                    result = json.loads(line)
 
-                    # Extract the Base64 image data from the returned parts payload
+                    result = json.loads(line)
                     try:
                         inline_data_base64 = result["response"]["candidates"][0][
                             "content"
                         ]["parts"][0]["inlineData"]["data"]
-                        import base64
 
                         image_bytes = base64.b64decode(inline_data_base64)
                         generated_images.append(Image.open(BytesIO(image_bytes)))
                     except KeyError:
-                        print("Warning: A batch line failed or returned no image.")
+                        print(
+                            "Warning: A specific generation line failed or was blocked by safety filters."
+                        )
+
+        if not generated_images:
+            raise RuntimeError(
+                "No completed image results found in the designated Google Cloud Storage bucket."
+            )
 
         return generated_images

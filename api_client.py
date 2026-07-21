@@ -161,6 +161,7 @@ class NanoBananaClient:
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {
                         "responseModalities": ["IMAGE"],
+                        "responseMimeType": "image/jpeg",  # <-- Force JPEG compression here
                         "imageConfig": {
                             "aspectRatio": aspect_ratio,
                             "imageSize": resolution,

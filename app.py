@@ -196,7 +196,7 @@ async def fetch_completed_job(
 
         return saved_paths, f"Successfully downloaded {len(saved_paths)} images."
     except Exception as e:
-        raise gr.Error(f"Fetch Error: {str(e)}")
+        raise gr.Error(f"{str(e)}")
 
 
 def get_stats_display(key: str):

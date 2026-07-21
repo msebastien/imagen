@@ -239,16 +239,35 @@ class NanoBananaClient:
                         continue
 
                     result = json.loads(line)
+
+                    # 1. Catch and parse the nested 'status' JSON string from Vertex AI
+                    if "status" in result and isinstance(result["status"], str):
+                        try:
+                            status_obj = json.loads(result["status"])
+                            if "message" in status_obj:
+                                # Raising this will cause app.py to trigger a gr.Error popup!
+                                raise RuntimeError(
+                                    f"Model Error: {status_obj['message']}"
+                                )
+                        except json.JSONDecodeError:
+                            pass
+
+                    # 2. Catch standard explicit API errors (as a fallback)
+                    if "error" in result:
+                        raise RuntimeError(f"API Error: {json.dumps(result['error'])}")
+
                     try:
+                        # 3. Attempt to extract the image
                         inline_data_base64 = result["response"]["candidates"][0][
                             "content"
                         ]["parts"][0]["inlineData"]["data"]
 
                         image_bytes = base64.b64decode(inline_data_base64)
                         generated_images.append(Image.open(BytesIO(image_bytes)))
-                    except KeyError:
+                    except KeyError as e:
+                        # 4. Silent fallback for structural issues not caught by the status check
                         print(
-                            "Warning: A specific generation line failed or was blocked by safety filters."
+                            f"Warning: Unexpected JSON structure missing key {e}. Skipping line."
                         )
 
         if not generated_images:

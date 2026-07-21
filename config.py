@@ -1,0 +1,26 @@
+"""
+config.py
+Configuration constants and cost tables for the Nano Banana API.
+"""
+
+# Available models based on the Nano Banana family
+AVAILABLE_MODELS = [
+    "gemini-3.1-flash-lite-image",  # Nano Banana 2 Lite
+    "gemini-3.1-flash-image",  # Nano Banana 2
+    "gemini-3-pro-image",  # Nano Banana Pro
+    "gemini-2.5-flash-image",  # Legacy
+]
+
+RESOLUTIONS = ["1K", "2K", "4K"]
+ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"]
+
+# Estimated cost table in integer cents (1 unit = $0.01)
+# These are baseline estimates for the purpose of calculation.
+COST_TABLE_CENTS = {
+    "gemini-3.1-flash-lite-image": {"1K": 1, "2K": 2, "4K": 4},
+    "gemini-3.1-flash-image": {"1K": 3, "2K": 6, "4K": 12},
+    "gemini-3-pro-image": {"1K": 6, "2K": 12, "4K": 24},
+    "gemini-2.5-flash-image": {"1K": 2, "2K": 4, "4K": 8},
+}
+
+DB_PATH = "nano_banana_cache.db"

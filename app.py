@@ -8,6 +8,7 @@ and asynchronous Google Cloud Batch API processing.
 import gradio as gr
 import asyncio
 import os
+import json
 from datetime import datetime
 from PIL import Image
 
@@ -20,6 +21,39 @@ database.init_db()
 
 # In-memory session job tracking for active Batch API jobs
 job_cache = []
+
+# --- Settings Management ---
+SETTINGS_FILE = "settings.json"
+
+
+def load_settings():
+    """Loads application settings from a local JSON file."""
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"api_key": "", "project_id": "", "gcs_bucket": ""}
+
+
+def save_settings(api_key: str, project_id: str, gcs_bucket: str):
+    """Saves application settings to a local JSON file."""
+    settings = {
+        "api_key": api_key.strip(),
+        "project_id": project_id.strip(),
+        "gcs_bucket": gcs_bucket.strip(),
+    }
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=4)
+        gr.Info("Settings successfully saved to settings.json!")
+    except Exception as e:
+        raise gr.Error(f"Failed to save settings: {str(e)}")
+
+
+# Load persistent settings on application startup
+app_settings = load_settings()
 
 
 def format_currency(cents: int) -> str:
@@ -331,10 +365,6 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
                                 label="Batch Size",
                             )
 
-                        b_bucket_input = gr.Textbox(
-                            label="Google Cloud Storage Bucket Name",
-                            placeholder="e.g. my-imagen-batch-bucket",
-                        )
                         b_cost_indicator = gr.Markdown(
                             "**Estimated Batch Cost (~50% off):** $0.00"
                         )
@@ -381,13 +411,25 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
         with gr.Tab("Settings"):
             gr.Markdown("### Authentication & Routing")
             api_key_input = gr.Textbox(
-                label="API Key", type="password", placeholder="Enter Gemini API Key..."
+                label="API Key",
+                type="password",
+                placeholder="Enter Gemini API Key...",
+                value=app_settings.get("api_key", ""),
             )
             project_id_input = gr.Textbox(
                 label="Google Cloud Project ID (Vertex AI Postpay Routing)",
                 placeholder="YOUR_PROJECT_ID (Optional)",
+                value=app_settings.get("project_id", ""),
             )
-            btn_test_conn = gr.Button("Test Connection")
+            gcs_bucket_input = gr.Textbox(
+                label="Google Cloud Storage Bucket Name (Batch API)",
+                placeholder="e.g. my-imagen-batch-bucket",
+                value=app_settings.get("gcs_bucket", ""),
+            )
+
+            with gr.Row():
+                btn_save_settings = gr.Button("💾 Save Settings", variant="primary")
+                btn_test_conn = gr.Button("Test Connection")
 
             gr.Markdown("### Cache Management")
             btn_clear_cache = gr.Button("Clear SQLite Image Cache", variant="stop")
@@ -428,6 +470,11 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
             inputs=inputs_for_batch_cost,
             outputs=b_cost_indicator,
         )
+
+    # Save Settings
+    btn_save_settings.click(
+        fn=save_settings, inputs=[api_key_input, project_id_input, gcs_bucket_input]
+    )
 
     # Connection Test & Clear Prompt
     btn_test_conn.click(
@@ -492,7 +539,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
             b_res_radio,
             b_ar_dropdown,
             b_batch_slider,
-            b_bucket_input,
+            gcs_bucket_input,  # Wired from the unified Settings tab
         ],
         outputs=[job_table, b_status_msg],
     )
@@ -505,7 +552,12 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
 
     fetch_btn.click(
         fn=fetch_completed_job,
-        inputs=[api_key_input, project_id_input, fetch_job_id, b_bucket_input],
+        inputs=[
+            api_key_input,
+            project_id_input,
+            fetch_job_id,
+            gcs_bucket_input,
+        ],  # Wired from the unified Settings tab
         outputs=[batch_gallery, fetch_msg],
     ).then(fn=load_history, outputs=[history_gallery, history_table])
 

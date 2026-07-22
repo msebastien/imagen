@@ -171,7 +171,12 @@ async def submit_batch_task(
         )
         # Store model and resolution in job_cache for usage stat calculations later
         job_cache.append([job_id, prompt, "PENDING", gcs_bucket, model, resolution])
-        table_rows = [[j[0], j[1][:35] + "...", j[2]] for j in job_cache]
+
+        # Update the Gradio Dataframe with the new job entry and a preview of the prompt
+        table_rows = [
+            [j[0], j[1][:35] + "..." if len(prompt) > 35 else prompt, j[2]]
+            for j in job_cache
+        ]
         return (
             gr.update(value=table_rows),
             f"Success! Job '{job_id}' submitted to queue.",
@@ -187,7 +192,8 @@ async def refresh_job_statuses(api_key: str, project_id: str):
     global job_cache
     for job in job_cache:
         job_id = job[0]
-        prompt_preview = job[1]
+        prompt = job[1]
+        prompt_preview = prompt[:35] + "..." if len(prompt) > 35 else prompt
         current_status = job[2]
         bucket = job[3]
         model = job[4] if len(job) > 4 else config.AVAILABLE_MODELS[0]
@@ -262,7 +268,7 @@ async def fetch_completed_job(
             img.save(filepath)
             saved_paths.append(filepath)
             database.cache_image(
-                "Batch:" + job_id + " - " + prompt, filepath, model, resolution
+                "Batch" + "|" + job_id + "|" + prompt, filepath, model, resolution
             )
 
         # 4. Calculate discounted Batch API cost and update usage statistics (only runs on first valid fetch)
@@ -287,6 +293,34 @@ async def fetch_completed_job(
         )
     except Exception as e:
         raise gr.Error(f"{str(e)}")
+
+
+async def discard_batch_job(
+    api_key: str, project_id: str, job_id: str, gcs_bucket: str
+):
+    if not job_id.strip():
+        raise gr.Error("Please enter a valid Job ID.")
+    if not gcs_bucket.strip():
+        raise gr.Error("Please enter the GCS Bucket Name.")
+
+    global job_cache
+
+    try:
+        client = NanoBananaClient(api_key, project_id)
+        # 1. Clean up input and output JSONL artifacts from GCS
+        await client.delete_batch_job_files(job_id, gcs_bucket)
+    except Exception as e:
+        # If files were already deleted or missing in GCS, log error and proceed to purge cache
+        pass
+
+    # 2. Remove job from active session dashboard tracking
+    job_cache = [j for j in job_cache if j[0] != job_id]
+    table_rows = [[j[0], j[1][:35] + "...", j[2]] for j in job_cache]
+
+    return (
+        f"Job '{job_id}' discarded and GCS files cleaned up.",
+        gr.update(value=table_rows),
+    )
 
 
 def get_stats_display(key: str):
@@ -445,14 +479,17 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
                     )
                     b_refresh_btn = gr.Button("🔄 Refresh Statuses")
 
-                    gr.Markdown("### Download Completed Results")
+                    gr.Markdown("### Manage Completed Results")
                     with gr.Row():
                         fetch_job_id = gr.Textbox(
-                            label="Job ID", placeholder="Paste Job ID here...", scale=3
+                            label="Job ID", placeholder="Paste Job ID here...", scale=2
                         )
                         fetch_btn = gr.Button("📥 Download Images", scale=1)
+                        discard_btn = gr.Button(
+                            "🗑️ Discard Job", scale=1, variant="stop"
+                        )
 
-                    fetch_msg = gr.Textbox(label="Download Status", interactive=False)
+                    fetch_msg = gr.Textbox(label="Action Status", interactive=False)
                     batch_gallery = gr.Gallery(
                         label="Batch Output Gallery", columns=3, height="auto"
                     )
@@ -627,6 +664,16 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
             job_table,  # Send the updated Dashboard UI table
         ],
     ).then(fn=load_history, outputs=[history_gallery, history_table])
+
+    # Discard Batch Job without downloading
+    discard_btn.click(
+        fn=discard_batch_job,
+        inputs=[api_key_input, project_id_input, fetch_job_id, gcs_bucket_input],
+        outputs=[
+            fetch_msg,
+            job_table,
+        ],
+    )
 
     # Auto-load history and stats on app startup / page refresh
     ui.load(fn=load_history, outputs=[history_gallery, history_table]).then(

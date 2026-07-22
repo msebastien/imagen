@@ -162,7 +162,7 @@ class NanoBananaClient:
     ) -> str:
         """
         Builds the JSONL payload, uploads it to GCS, and triggers the Vertex AI Batch job.
-        Returns the API-generated Job ID[cite: 4, 5].
+        Returns the API-generated Job ID.
         """
         if not self.client:
             raise ValueError("API Client not initialized.")
@@ -192,21 +192,21 @@ class NanoBananaClient:
                     "safetySettings": [
                         {
                             "category": "HARM_CATEGORY_HARASSMENT",
-                            "threshold": "BLOCK_NONE"
+                            "threshold": "BLOCK_NONE",
                         },
                         {
                             "category": "HARM_CATEGORY_HATE_SPEECH",
-                            "threshold": "BLOCK_NONE"
+                            "threshold": "BLOCK_NONE",
                         },
                         {
                             "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                            "threshold": "BLOCK_NONE"
+                            "threshold": "BLOCK_NONE",
                         },
                         {
                             "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                            "threshold": "BLOCK_NONE"
-                        }
-                    ]
+                            "threshold": "BLOCK_NONE",
+                        },
+                    ],
                 }
             }
             lines.append(json.dumps(request_payload))
@@ -235,7 +235,7 @@ class NanoBananaClient:
 
     async def get_batch_job_status(self, job_id: str) -> str:
         """
-        Queries Vertex AI for the current lifecycle state of a specific Batch job[cite: 4].
+        Queries Vertex AI for the current lifecycle state of a specific Batch job.
         """
         if not self.client:
             raise ValueError("API Client not initialized.")
@@ -248,7 +248,7 @@ class NanoBananaClient:
     ) -> List[Image.Image]:
         """
         Queries GCS for the output JSONL file associated with a completed job,
-        decodes the base64 output parts, and transforms them into standard PIL Images[cite: 5].
+        decodes the base64 output parts, and transforms them into standard PIL Images.
         """
         if not self.client:
             raise ValueError("API Client not initialized.")
@@ -317,3 +317,38 @@ class NanoBananaClient:
             )
 
         return generated_images
+
+    async def delete_batch_job_files(self, job_id: str, gcs_bucket_name: str):
+        """
+        Deletes the input and output files associated with a Batch job from GCS
+        to ensure they cannot be re-downloaded.
+        """
+        if not self.client:
+            raise ValueError("API Client not initialized.")
+
+        storage_client = storage.Client(project=self.project_id)
+        bucket = storage_client.bucket(gcs_bucket_name)
+
+        job = await asyncio.to_thread(self.client.batches.get, name=job_id)
+        dest_uri = job.dest.gcs_uri
+
+        if dest_uri.startswith(f"gs://{gcs_bucket_name}/"):
+            output_prefix = dest_uri.replace(f"gs://{gcs_bucket_name}/", "")
+        else:
+            output_prefix = "batch_outputs/"
+
+        # 1. Delete all output blobs
+        blobs = storage_client.list_blobs(gcs_bucket_name, prefix=output_prefix)
+        for blob in blobs:
+            blob.delete()
+
+        # 2. Attempt to delete the corresponding input JSONL file based on the timestamp
+        if "res_" in output_prefix:
+            try:
+                timestamp = output_prefix.split("res_")[-1].strip("/")
+                input_blob_name = f"batch_inputs/req_{timestamp}.jsonl"
+                input_blob = bucket.blob(input_blob_name)
+                if input_blob.exists():
+                    input_blob.delete()
+            except Exception:
+                pass

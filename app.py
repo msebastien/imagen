@@ -225,9 +225,11 @@ async def fetch_completed_job(
 
     try:
         client = NanoBananaClient(api_key, project_id)
+
+        # 1. Download images (will raise RuntimeError if missing/already deleted)
         images = await client.download_batch_results(job_id, gcs_bucket)
 
-        # Retrieve model and resolution metadata from session job cache if available
+        # 2. Retrieve model and resolution metadata from session job cache if available
         model = config.AVAILABLE_MODELS[0]
         resolution = "1K"
         for job in job_cache:
@@ -246,17 +248,26 @@ async def fetch_completed_job(
             saved_paths.append(filepath)
             database.cache_image("Batch Job: " + job_id, filepath, model, resolution)
 
-        # Calculate discounted Batch API cost and update usage statistics
+        # 3. Calculate discounted Batch API cost and update usage statistics
         cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
         total_cost = int(cost_per_img * len(images))
 
         stat_key = api_key if api_key else project_id
         database.update_stats(stat_key, len(images), total_cost)
 
+        # 4. Clean up GCS files so they cannot be fetched again
+        await client.delete_batch_job_files(job_id, gcs_bucket)
+
+        # 5. Remove job from the active dashboard (job_cache)
+        global job_cache
+        job_cache = [j for j in job_cache if j[0] != job_id]
+        table_rows = [[j[0], j[1], j[2]] for j in job_cache]
+
         return (
             saved_paths,
-            f"Successfully downloaded {len(saved_paths)} images.",
+            f"Successfully downloaded {len(saved_paths)} images. Job consumed and removed.",
             *get_stats_display(stat_key),
+            gr.update(value=table_rows),  # Pass the fresh table data to Gradio
         )
     except Exception as e:
         raise gr.Error(f"{str(e)}")
@@ -580,6 +591,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
         outputs=[job_table],
     )
 
+    # Batch File Fetching & Cleanup
     fetch_btn.click(
         fn=fetch_completed_job,
         inputs=[api_key_input, project_id_input, fetch_job_id, gcs_bucket_input],
@@ -590,6 +602,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
             stat_mon_img,
             stat_tot_cost,
             stat_mon_cost,
+            job_table,  # Send the updated Dashboard UI table
         ],
     ).then(fn=load_history, outputs=[history_gallery, history_table])
 

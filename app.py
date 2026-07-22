@@ -363,7 +363,7 @@ def handle_clear_cache():
 
 
 # --- Gradio UI Layout ---
-with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
+with gr.Blocks() as ui:
     gr.Markdown("# 🍌 Nano Banana Vertex AI Studio")
     status_indicator = gr.Markdown("⚪ **API Status:** Waiting for credentials...")
 
@@ -683,4 +683,10 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
     )
 
 if __name__ == "__main__":
-    ui.launch(server_name="127.0.0.1", server_port=7860)
+    ui.launch(
+        server_name="127.0.0.1",
+        server_port=7860,
+        theme=gr.themes.Default(primary_hue="blue"),
+        share=False,
+        debug=True,
+    )

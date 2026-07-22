@@ -1,0 +1,4 @@
+gradio
+google-genai
+pillow
+google-cloud-storage

@@ -170,10 +170,8 @@ async def submit_batch_task(
             gcs_bucket_name=gcs_bucket,
         )
         # Store model and resolution in job_cache for usage stat calculations later
-        job_cache.append(
-            [job_id, prompt[:35] + "...", "PENDING", gcs_bucket, model, resolution]
-        )
-        table_rows = [[j[0], j[1], j[2]] for j in job_cache]
+        job_cache.append([job_id, prompt, "PENDING", gcs_bucket, model, resolution])
+        table_rows = [[j[0], j[1][:35] + "...", j[2]] for j in job_cache]
         return (
             gr.update(value=table_rows),
             f"Success! Job '{job_id}' submitted to queue.",
@@ -205,7 +203,14 @@ async def refresh_job_statuses(api_key: str, project_id: str):
         try:
             status = await client.get_batch_job_status(job_id)
             updated_cache.append(
-                [job_id, prompt_preview, status, bucket, model, resolution]
+                [
+                    job_id,
+                    prompt_preview,
+                    status.split("_")[-1],
+                    bucket,
+                    model,
+                    resolution,
+                ]
             )
         except Exception:
             updated_cache.append(job)
@@ -244,6 +249,7 @@ async def fetch_completed_job(
         images = await client.download_batch_results(job_id, gcs_bucket)
 
         # 3. Extract model and resolution metadata from the matched cache entry
+        prompt = matched_job[1] if len(matched_job) > 1 else "Unknown Prompt"
         model = matched_job[4] if len(matched_job) > 4 else config.AVAILABLE_MODELS[0]
         resolution = matched_job[5] if len(matched_job) > 5 else "1K"
 
@@ -255,7 +261,9 @@ async def fetch_completed_job(
             filepath = f"outputs/batch_img_{timestamp}_{i}.png"
             img.save(filepath)
             saved_paths.append(filepath)
-            database.cache_image("Batch Job: " + job_id, filepath, model, resolution)
+            database.cache_image(
+                "Batch:" + job_id + " - " + prompt, filepath, model, resolution
+            )
 
         # 4. Calculate discounted Batch API cost and update usage statistics (only runs on first valid fetch)
         cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)

@@ -283,6 +283,12 @@ def get_stats_display(key: str):
     )
 
 
+def load_initial_stats(api_key: str, project_id: str):
+    """Fetches usage stats based on the available active credential."""
+    stat_key = api_key if api_key else project_id
+    return get_stats_display(stat_key)
+
+
 def clear_ui_prompt():
     return ""
 
@@ -539,8 +545,8 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
 
     # Usage Stats
     btn_refresh_stats.click(
-        fn=get_stats_display,
-        inputs=[api_key_input],
+        fn=load_initial_stats,
+        inputs=[api_key_input, project_id_input],
         outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
     )
 
@@ -606,8 +612,12 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
         ],
     ).then(fn=load_history, outputs=[history_gallery, history_table])
 
-    # Auto-load history on app startup
-    ui.load(fn=load_history, outputs=[history_gallery, history_table])
+    # Auto-load history and stats on app startup / page refresh
+    ui.load(fn=load_history, outputs=[history_gallery, history_table]).then(
+        fn=load_initial_stats,
+        inputs=[api_key_input, project_id_input],
+        outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
+    )
 
 if __name__ == "__main__":
     ui.launch(server_name="127.0.0.1", server_port=7860)

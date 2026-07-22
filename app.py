@@ -1,6 +1,6 @@
 """
 app.py
-Gradio User Interface and event wiring for Nano Banana Vertex AI Studio.
+Gradio User Interface and event wiring for Imagen AI Studio: Nano Banana Edition.
 Includes real-time generation, local history/caching, usage statistics,
 and asynchronous Google Cloud Batch API processing.
 """
@@ -364,7 +364,7 @@ def handle_clear_cache():
 
 # --- Gradio UI Layout ---
 with gr.Blocks() as ui:
-    gr.Markdown("# 🍌 Nano Banana Vertex AI Studio")
+    gr.Markdown("# 🍌 Imagen AI Studio: Nano Banana Edition")
     status_indicator = gr.Markdown("⚪ **API Status:** Waiting for credentials...")
 
     with gr.Tabs():

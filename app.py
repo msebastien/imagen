@@ -92,8 +92,7 @@ async def process_generation(
 
     for i, img in enumerate(images):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ext = "jpg" if img.format == "JPEG" else img.format.lower()
-        filepath = f"outputs/img_{timestamp}_{i}.{ext}"
+        filepath = f"outputs/img_{timestamp}_{i}.png"
         img.save(filepath)
         saved_paths.append(filepath)
         database.cache_image(prompt, filepath, model, resolution)
@@ -188,7 +187,7 @@ async def fetch_completed_job(
 
         for i, img in enumerate(images):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filepath = f"outputs/batch_img_{timestamp}_{i}.jpg"
+            filepath = f"outputs/batch_img_{timestamp}_{i}.png"
             img.save(filepath)
             saved_paths.append(filepath)
             database.cache_image(

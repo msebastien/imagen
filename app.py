@@ -232,6 +232,7 @@ async def fetch_completed_job(
         # 2. Retrieve model and resolution metadata from session job cache if available
         model = config.AVAILABLE_MODELS[0]
         resolution = "1K"
+        global job_cache
         for job in job_cache:
             if job[0] == job_id:
                 model = job[4] if len(job) > 4 else model
@@ -259,7 +260,6 @@ async def fetch_completed_job(
         await client.delete_batch_job_files(job_id, gcs_bucket)
 
         # 5. Remove job from the active dashboard (job_cache)
-        global job_cache
         job_cache = [j for j in job_cache if j[0] != job_id]
         table_rows = [[j[0], j[1], j[2]] for j in job_cache]
 

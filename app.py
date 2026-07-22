@@ -169,7 +169,10 @@ async def submit_batch_task(
             aspect_ratio=aspect_ratio,
             gcs_bucket_name=gcs_bucket,
         )
-        job_cache.append([job_id, prompt[:35] + "...", "PENDING", gcs_bucket])
+        # Store model and resolution in job_cache for usage stat calculations later
+        job_cache.append(
+            [job_id, prompt[:35] + "...", "PENDING", gcs_bucket, model, resolution]
+        )
         table_rows = [[j[0], j[1], j[2]] for j in job_cache]
         return (
             gr.update(value=table_rows),
@@ -185,7 +188,13 @@ async def refresh_job_statuses(api_key: str, project_id: str):
 
     global job_cache
     for job in job_cache:
-        job_id, prompt_preview, current_status, bucket = job
+        job_id = job[0]
+        prompt_preview = job[1]
+        current_status = job[2]
+        bucket = job[3]
+        model = job[4] if len(job) > 4 else config.AVAILABLE_MODELS[0]
+        resolution = job[5] if len(job) > 5 else "1K"
+
         if current_status in [
             "JOB_STATE_SUCCEEDED",
             "JOB_STATE_FAILED",
@@ -195,7 +204,9 @@ async def refresh_job_statuses(api_key: str, project_id: str):
             continue
         try:
             status = await client.get_batch_job_status(job_id)
-            updated_cache.append([job_id, prompt_preview, status, bucket])
+            updated_cache.append(
+                [job_id, prompt_preview, status, bucket, model, resolution]
+            )
         except Exception:
             updated_cache.append(job)
 
@@ -216,6 +227,15 @@ async def fetch_completed_job(
         client = NanoBananaClient(api_key, project_id)
         images = await client.download_batch_results(job_id, gcs_bucket)
 
+        # Retrieve model and resolution metadata from session job cache if available
+        model = config.AVAILABLE_MODELS[0]
+        resolution = "1K"
+        for job in job_cache:
+            if job[0] == job_id:
+                model = job[4] if len(job) > 4 else model
+                resolution = job[5] if len(job) > 5 else resolution
+                break
+
         saved_paths = []
         os.makedirs("outputs", exist_ok=True)
 
@@ -224,11 +244,20 @@ async def fetch_completed_job(
             filepath = f"outputs/batch_img_{timestamp}_{i}.png"
             img.save(filepath)
             saved_paths.append(filepath)
-            database.cache_image(
-                "Batch Job: " + job_id, filepath, "Batch Model", "Batch Res"
-            )
+            database.cache_image("Batch Job: " + job_id, filepath, model, resolution)
 
-        return saved_paths, f"Successfully downloaded {len(saved_paths)} images."
+        # Calculate discounted Batch API cost and update usage statistics
+        cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
+        total_cost = int(cost_per_img * len(images))
+
+        stat_key = api_key if api_key else project_id
+        database.update_stats(stat_key, len(images), total_cost)
+
+        return (
+            saved_paths,
+            f"Successfully downloaded {len(saved_paths)} images.",
+            *get_stats_display(stat_key),
+        )
     except Exception as e:
         raise gr.Error(f"{str(e)}")
 
@@ -322,7 +351,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
                         label="Generated Outputs", columns=2, height="auto"
                     )
 
-        # --- Batch Queue Tab (NEW) ---
+        # --- Batch Queue Tab ---
         with gr.Tab("Batch Queue (50% Discount)"):
             gr.Markdown(
                 "Submit large or background image tasks to the Google Cloud Batch API. "
@@ -473,7 +502,8 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
 
     # Save Settings
     btn_save_settings.click(
-        fn=save_settings, inputs=[api_key_input, project_id_input, gcs_bucket_input]
+        fn=save_settings,
+        inputs=[api_key_input, project_id_input, gcs_bucket_input],
     )
 
     # Connection Test & Clear Prompt
@@ -539,7 +569,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
             b_res_radio,
             b_ar_dropdown,
             b_batch_slider,
-            gcs_bucket_input,  # Wired from the unified Settings tab
+            gcs_bucket_input,
         ],
         outputs=[job_table, b_status_msg],
     )
@@ -552,13 +582,15 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as ui:
 
     fetch_btn.click(
         fn=fetch_completed_job,
-        inputs=[
-            api_key_input,
-            project_id_input,
-            fetch_job_id,
-            gcs_bucket_input,
-        ],  # Wired from the unified Settings tab
-        outputs=[batch_gallery, fetch_msg],
+        inputs=[api_key_input, project_id_input, fetch_job_id, gcs_bucket_input],
+        outputs=[
+            batch_gallery,
+            fetch_msg,
+            stat_tot_img,
+            stat_mon_img,
+            stat_tot_cost,
+            stat_mon_cost,
+        ],
     ).then(fn=load_history, outputs=[history_gallery, history_table])
 
     # Auto-load history on app startup

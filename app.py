@@ -6,11 +6,9 @@ and asynchronous Google Cloud Batch API processing.
 """
 
 import gradio as gr
-import asyncio
 import os
 import json
 from datetime import datetime
-from PIL import Image
 
 import database
 import config

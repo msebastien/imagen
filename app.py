@@ -223,21 +223,29 @@ async def fetch_completed_job(
     if not gcs_bucket.strip():
         raise gr.Error("Please enter the GCS Bucket Name.")
 
+    global job_cache
+
+    # 1. Explicitly check if the job exists in the active session cache (prevents re-downloading consumed/invalid jobs)
+    matched_job = None
+    for job in job_cache:
+        if job[0] == job_id:
+            matched_job = job
+            break
+
+    if not matched_job:
+        raise gr.Error(
+            "Error: This job has already been consumed, does not exist, or is no longer active in the queue."
+        )
+
     try:
         client = NanoBananaClient(api_key, project_id)
 
-        # 1. Download images (will raise RuntimeError if missing/already deleted)
+        # 2. Download images from GCS(will raise RuntimeError if missing/already deleted)
         images = await client.download_batch_results(job_id, gcs_bucket)
 
-        # 2. Retrieve model and resolution metadata from session job cache if available
-        model = config.AVAILABLE_MODELS[0]
-        resolution = "1K"
-        global job_cache
-        for job in job_cache:
-            if job[0] == job_id:
-                model = job[4] if len(job) > 4 else model
-                resolution = job[5] if len(job) > 5 else resolution
-                break
+        # 3. Extract model and resolution metadata from the matched cache entry
+        model = matched_job[4] if len(matched_job) > 4 else config.AVAILABLE_MODELS[0]
+        resolution = matched_job[5] if len(matched_job) > 5 else "1K"
 
         saved_paths = []
         os.makedirs("outputs", exist_ok=True)
@@ -249,17 +257,17 @@ async def fetch_completed_job(
             saved_paths.append(filepath)
             database.cache_image("Batch Job: " + job_id, filepath, model, resolution)
 
-        # 3. Calculate discounted Batch API cost and update usage statistics
+        # 4. Calculate discounted Batch API cost and update usage statistics (only runs on first valid fetch)
         cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
         total_cost = int(cost_per_img * len(images))
 
         stat_key = api_key if api_key else project_id
         database.update_stats(stat_key, len(images), total_cost)
 
-        # 4. Clean up GCS files so they cannot be fetched again
+        # 5. Clean up GCS files so they cannot be fetched again
         await client.delete_batch_job_files(job_id, gcs_bucket)
 
-        # 5. Remove job from the active dashboard (job_cache)
+        # 6. Remove job from the active dashboard permanently (job_cache)
         job_cache = [j for j in job_cache if j[0] != job_id]
         table_rows = [[j[0], j[1], j[2]] for j in job_cache]
 

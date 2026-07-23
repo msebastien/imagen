@@ -21,16 +21,17 @@ from google.cloud.storage.blob import Blob
 
 class NanoBananaClient:
     # 1. Add location as a parameter (defaulting to us-central1 for maximum model compatibility)
-    def __init__(
-        self, api_key: str = "", project_id: str = "", location: str = "global"
-    ):
+    def __init__(self, api_key: str = "", project_id: str = "", location: str = "global"):
         self.api_key = api_key.strip()
         self.project_id = project_id.strip()
         self.location = location.strip()
         self.client = self._initialize_client()
 
     def _initialize_client(self):
-        """Initializes the Agent Platform client. Routes through Google Cloud if Project ID is provided."""
+        """
+        Initializes the Agent Platform client.
+        Routes through Google Cloud if Project ID is provided.
+        """
         try:
             if self.project_id:
                 # Corrected: Use enterprise=True for Gemini Enterprise Agent Platform (Vertex AI)
@@ -82,9 +83,7 @@ class NanoBananaClient:
                     img = Image.open(img_path)
                     contents.append(img)
                 except Exception as e:
-                    raise ValueError(
-                        f"Failed to process input image {img_path}: {str(e)}"
-                    )
+                    raise ValueError(f"Failed to process input image {img_path}: {str(e)}")
 
         # 2. Configure the SDK to force a native image output from the Gemini model
         config = types.GenerateContentConfig(
@@ -108,13 +107,14 @@ class NanoBananaClient:
                     threshold=types.HarmBlockThreshold.BLOCK_NONE,
                 ),
             ],
-            image_config=types.ImageConfig(
-                aspect_ratio=aspect_ratio, image_size=resolution
-            ),
+            image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=resolution),
         )
 
         async def _generate_single():
-            """Helper function to execute a single generate_content call with safety and None checks."""
+            """
+            Helper function to execute a single generate_content call
+            with safety and None checks.
+            """
             response = await asyncio.to_thread(
                 self.client.models.generate_content,
                 model=model_name,
@@ -243,9 +243,7 @@ class NanoBananaClient:
         job_status = await asyncio.to_thread(self.client.batches.get, name=job_id)
         return job_status.state
 
-    async def download_batch_results(
-        self, job_id: str, gcs_bucket_name: str
-    ) -> List[Image.Image]:
+    async def download_batch_results(self, job_id: str, gcs_bucket_name: str) -> List[Image.Image]:
         """
         Queries GCS for the output JSONL file associated with a completed job,
         decodes the base64 output parts, and transforms them into standard PIL Images.
@@ -287,9 +285,7 @@ class NanoBananaClient:
                             status_obj = json.loads(result["status"])
                             if "message" in status_obj:
                                 # Raising this will cause app.py to trigger a gr.Error popup!
-                                raise RuntimeError(
-                                    f"Model Error: {status_obj['message']}"
-                                )
+                                raise RuntimeError(f"Model Error: {status_obj['message']}")
                         except json.JSONDecodeError:
                             pass
 
@@ -299,17 +295,15 @@ class NanoBananaClient:
 
                     try:
                         # 3. Attempt to extract the image
-                        inline_data_base64 = result["response"]["candidates"][0][
-                            "content"
-                        ]["parts"][0]["inlineData"]["data"]
+                        inline_data_base64 = result["response"]["candidates"][0]["content"][
+                            "parts"
+                        ][0]["inlineData"]["data"]
 
                         image_bytes = base64.b64decode(inline_data_base64)
                         generated_images.append(Image.open(BytesIO(image_bytes)))
                     except KeyError as e:
                         # 4. Silent fallback for structural issues not caught by the status check
-                        print(
-                            f"Warning: Unexpected JSON structure missing key {e}. Skipping line."
-                        )
+                        print(f"Warning: Unexpected JSON structure missing key {e}. Skipping line.")
 
         if not generated_images:
             raise RuntimeError(

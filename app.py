@@ -98,9 +98,7 @@ async def process_generation(
     if not prompt.strip():
         raise gr.Error("Prompt cannot be empty.")
     if not api_key.strip() and not project_id.strip():
-        raise gr.Error(
-            "Missing Credentials. Please provide an API Key or Project ID in Settings."
-        )
+        raise gr.Error("Missing Credentials. Please provide an API Key or Project ID in Settings.")
     if batch_size < 1 or batch_size > 8:
         raise gr.Error("Batch size must be between 1 and 8.")
 
@@ -153,9 +151,7 @@ async def submit_batch_task(
     if not gcs_bucket.strip():
         raise gr.Error("Google Cloud Storage Bucket Name is required for Batch jobs.")
     if not api_key.strip() and not project_id.strip():
-        raise gr.Error(
-            "Missing Credentials. Please provide an API Key or Project ID in Settings."
-        )
+        raise gr.Error("Missing Credentials. Please provide an API Key or Project ID in Settings.")
 
     try:
         client = NanoBananaClient(api_key, project_id)
@@ -172,8 +168,7 @@ async def submit_batch_task(
 
         # Update the Gradio Dataframe with the new job entry and a preview of the prompt
         table_rows = [
-            [j[0], j[1][:35] + "..." if len(prompt) > 35 else prompt, j[2]]
-            for j in job_cache
+            [j[0], j[1][:35] + "..." if len(prompt) > 35 else prompt, j[2]] for j in job_cache
         ]
         return (
             gr.update(value=table_rows),
@@ -224,9 +219,7 @@ async def refresh_job_statuses(api_key: str, project_id: str):
     return gr.update(value=table_rows)
 
 
-async def fetch_completed_job(
-    api_key: str, project_id: str, job_id: str, gcs_bucket: str
-):
+async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bucket: str):
     if not job_id.strip():
         raise gr.Error("Please enter a valid Job ID.")
     if not gcs_bucket.strip():
@@ -234,7 +227,8 @@ async def fetch_completed_job(
 
     global job_cache
 
-    # 1. Explicitly check if the job exists in the active session cache (prevents re-downloading consumed/invalid jobs)
+    # 1. Explicitly check if the job exists in the active session cache
+    # (prevents re-downloading consumed/invalid jobs)
     matched_job = None
     for job in job_cache:
         if job[0] == job_id:
@@ -243,7 +237,8 @@ async def fetch_completed_job(
 
     if not matched_job:
         raise gr.Error(
-            "Error: This job has already been consumed, does not exist, or is no longer active in the queue."
+            "Error: This job has already been consumed, does not exist, "
+            "or is no longer active in the queue."
         )
 
     try:
@@ -265,11 +260,10 @@ async def fetch_completed_job(
             filepath = f"outputs/batch_img_{timestamp}_{i}.png"
             img.save(filepath)
             saved_paths.append(filepath)
-            database.cache_image(
-                "Batch" + "|" + job_id + "|" + prompt, filepath, model, resolution
-            )
+            database.cache_image("Batch" + "|" + job_id + "|" + prompt, filepath, model, resolution)
 
-        # 4. Calculate discounted Batch API cost and update usage statistics (only runs on first valid fetch)
+        # 4. Calculate discounted Batch API cost and update usage statistics
+        # (only runs on first valid fetch)
         cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
         total_cost = int(cost_per_img * len(images))
 
@@ -293,9 +287,7 @@ async def fetch_completed_job(
         raise gr.Error(f"{str(e)}")
 
 
-async def discard_batch_job(
-    api_key: str, project_id: str, job_id: str, gcs_bucket: str
-):
+async def discard_batch_job(api_key: str, project_id: str, job_id: str, gcs_bucket: str):
     if not job_id.strip():
         raise gr.Error("Please enter a valid Job ID.")
     if not gcs_bucket.strip():
@@ -307,7 +299,7 @@ async def discard_batch_job(
         client = NanoBananaClient(api_key, project_id)
         # 1. Clean up input and output JSONL artifacts from GCS
         await client.delete_batch_job_files(job_id, gcs_bucket)
-    except Exception as e:
+    except Exception:
         # If files were already deleted or missing in GCS, log error and proceed to purge cache
         pass
 
@@ -412,15 +404,14 @@ with gr.Blocks() as ui:
                         cost_indicator = gr.Markdown("**Estimated Cost:** $0.00")
 
                 with gr.Column(scale=3):
-                    output_gallery = gr.Gallery(
-                        label="Generated Outputs", columns=2, height="auto"
-                    )
+                    output_gallery = gr.Gallery(label="Generated Outputs", columns=2, height="auto")
 
         # --- Batch Queue Tab ---
         with gr.Tab("Batch Queue (50% Discount)"):
             gr.Markdown(
                 "Submit large or background image tasks to the Google Cloud Batch API. "
-                "Enjoy a **50% discount** on generation costs. Results are saved in Google Cloud Storage."
+                "Enjoy a **50% discount** on generation costs. "
+                "Results are saved in Google Cloud Storage."
             )
             with gr.Row():
                 # Left Column: Submission Form
@@ -459,13 +450,9 @@ with gr.Blocks() as ui:
                                 label="Batch Size",
                             )
 
-                        b_cost_indicator = gr.Markdown(
-                            "**Estimated Batch Cost (~50% off):** $0.00"
-                        )
+                        b_cost_indicator = gr.Markdown("**Estimated Batch Cost (~50% off):** $0.00")
 
-                    b_status_msg = gr.Textbox(
-                        label="Submission Status", interactive=False
-                    )
+                    b_status_msg = gr.Textbox(label="Submission Status", interactive=False)
 
                 # Right Column: Dashboard & Fetching
                 with gr.Column(scale=3):
@@ -483,9 +470,7 @@ with gr.Blocks() as ui:
                             label="Job ID", placeholder="Paste Job ID here...", scale=2
                         )
                         fetch_btn = gr.Button("📥 Download Images", scale=1)
-                        discard_btn = gr.Button(
-                            "🗑️ Discard Job", scale=1, variant="stop"
-                        )
+                        discard_btn = gr.Button("🗑️ Discard Job", scale=1, variant="stop")
 
                     fetch_msg = gr.Textbox(label="Action Status", interactive=False)
                     batch_gallery = gr.Gallery(
@@ -534,20 +519,15 @@ with gr.Blocks() as ui:
         # --- Stats Tab ---
         with gr.Tab("Usage Statistics"):
             gr.Markdown(
-                "Metrics are tied to your specific API Key / Project ID. Monthly counters reset on the 1st."
+                "Metrics are tied to your specific API Key / Project ID. "
+                "Monthly counters reset on the 1st."
             )
             with gr.Row():
-                stat_tot_img = gr.Number(
-                    label="Total Images Generated", interactive=False
-                )
-                stat_mon_img = gr.Number(
-                    label="Images Generated This Month", interactive=False
-                )
+                stat_tot_img = gr.Number(label="Total Images Generated", interactive=False)
+                stat_mon_img = gr.Number(label="Images Generated This Month", interactive=False)
             with gr.Row():
                 stat_tot_cost = gr.Textbox(label="Total Cost (USD)", interactive=False)
-                stat_mon_cost = gr.Textbox(
-                    label="Monthly Cost (USD)", interactive=False
-                )
+                stat_mon_cost = gr.Textbox(label="Monthly Cost (USD)", interactive=False)
             btn_refresh_stats = gr.Button("Refresh Statistics")
 
     # --- Event Wiring ---
@@ -555,9 +535,7 @@ with gr.Blocks() as ui:
     # Real-Time Cost Estimation
     inputs_for_cost = [model_dropdown, res_radio, batch_slider]
     for component in inputs_for_cost:
-        component.change(
-            fn=estimate_cost_display, inputs=inputs_for_cost, outputs=cost_indicator
-        )
+        component.change(fn=estimate_cost_display, inputs=inputs_for_cost, outputs=cost_indicator)
 
     # Batch Cost Estimation
     inputs_for_batch_cost = [b_model_dropdown, b_res_radio, b_batch_slider]

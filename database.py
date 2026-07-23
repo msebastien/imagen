@@ -64,7 +64,9 @@ def get_cached_history() -> list:
     cursor = conn.cursor()
     # Fetching columns: image_path, prompt, model, resolution, timestamp
     cursor.execute(
-        "SELECT image_path, prompt, model, resolution, timestamp FROM image_cache ORDER BY timestamp DESC"
+        "SELECT image_path, prompt, model, resolution, timestamp "
+        "FROM image_cache "
+        "ORDER BY timestamp DESC"
     )
     rows = cursor.fetchall()
     conn.close()
@@ -92,7 +94,6 @@ def clear_cache():
 
 
 def update_stats(api_key: str, images_generated: int, cost_cents: int):
-    # (Same as before)
     if not api_key:
         return
 
@@ -109,7 +110,14 @@ def update_stats(api_key: str, images_generated: int, cost_cents: int):
 
     if row is None:
         cursor.execute(
-            "INSERT INTO api_stats (key_hash, total_images, total_cost_cents, current_month, monthly_images, monthly_cost_cents) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO api_stats ("
+            "key_hash, "
+            "total_images, "
+            "total_cost_cents, "
+            "current_month, "
+            "monthly_images, "
+            "monthly_cost_cents) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 hashed,
                 images_generated,
@@ -152,7 +160,6 @@ def update_stats(api_key: str, images_generated: int, cost_cents: int):
 
 
 def get_stats(api_key: str) -> dict:
-    # (Same as before)
     if not api_key:
         return {"total_img": 0, "total_cost": 0, "monthly_img": 0, "monthly_cost": 0}
 
@@ -162,7 +169,9 @@ def get_stats(api_key: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT total_images, total_cost_cents, current_month, monthly_images, monthly_cost_cents FROM api_stats WHERE key_hash=?",
+        "SELECT total_images, total_cost_cents, current_month, monthly_images, monthly_cost_cents "
+        "FROM api_stats "
+        "WHERE key_hash=?",
         (hashed,),
     )
     row = cursor.fetchone()

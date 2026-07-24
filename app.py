@@ -145,6 +145,7 @@ async def submit_batch_task(
     aspect_ratio: str,
     batch_size: int,
     gcs_bucket: str,
+    input_images: list,
 ):
     if not prompt.strip():
         raise gr.Error("Prompt cannot be empty.")
@@ -152,6 +153,10 @@ async def submit_batch_task(
         raise gr.Error("Google Cloud Storage Bucket Name is required for Batch jobs.")
     if not api_key.strip() and not project_id.strip():
         raise gr.Error("Missing Credentials. Please provide an API Key or Project ID in Settings.")
+
+    img_paths = [img.name for img in input_images] if input_images else None
+    if img_paths and len(img_paths) > 16:
+        raise gr.Error("Maximum 16 reference images allowed.")
 
     try:
         client = NanoBananaClient(api_key, project_id)
@@ -162,6 +167,7 @@ async def submit_batch_task(
             resolution=resolution,
             aspect_ratio=aspect_ratio,
             gcs_bucket_name=gcs_bucket,
+            input_image_paths=img_paths,
         )
         # Store model and resolution in job_cache for usage stat calculations later
         job_cache.append([job_id, prompt, "PENDING", gcs_bucket, model, resolution])
@@ -450,6 +456,12 @@ with gr.Blocks() as ui:
                                 label="Batch Size",
                             )
 
+                        b_input_gallery = gr.File(
+                            label="Input/Reference Images (Max 16)",
+                            file_count="multiple",
+                            file_types=["image"],
+                        )
+
                         b_cost_indicator = gr.Markdown("**Estimated Batch Cost (~50% off):** $0.00")
 
                     b_status_msg = gr.Textbox(label="Submission Status", interactive=False)
@@ -616,6 +628,7 @@ with gr.Blocks() as ui:
             b_ar_dropdown,
             b_batch_slider,
             gcs_bucket_input,
+            b_input_gallery,
         ],
         outputs=[job_table, b_status_msg],
     )

@@ -159,6 +159,7 @@ class NanoBananaClient:
         resolution: str,
         aspect_ratio: str,
         gcs_bucket_name: str,
+        input_image_paths: Optional[List[str]] = None,
     ) -> str:
         """
         Builds the JSONL payload, uploads it to GCS, and triggers the Vertex AI Batch job.
@@ -175,7 +176,25 @@ class NanoBananaClient:
         input_file_path = f"batch_inputs/req_{timestamp}.jsonl"
         output_prefix = f"batch_outputs/res_{timestamp}"
 
-        # Construct the exact inline REST payload the model expects[cite: 5]
+        # 1. Prepare multimodal parts (Text + Base64 Reference Images)
+        parts = [{"text": prompt}]
+        if input_image_paths:
+            for img_path in input_image_paths[:16]:
+                try:
+                    with Image.open(img_path) as img:
+                        # Convert to RGB to ensure smooth JPEG saving
+                        if img.mode in ("RGBA", "P"):
+                            img = img.convert("RGB")
+
+                        buffered = BytesIO()
+                        img.save(buffered, format="JPEG")
+                        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+                        parts.append({"inlineData": {"mimeType": "image/jpeg", "data": img_b64}})
+                except Exception as e:
+                    raise ValueError(f"Failed to process input image {img_path}: {str(e)}")
+
+        # Construct the exact inline REST payload the model expects
         lines = []
         for _ in range(batch_size):
             request_payload = {

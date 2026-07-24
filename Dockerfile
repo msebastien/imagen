@@ -1,5 +1,5 @@
 # Use the lightweight Alpine image
-FROM docker.io/python:3.14.6-alpine3.23
+FROM docker.io/python:3.14.6-alpine3.24
 
 # Prevent Python from writing .pyc files and force stdout/stderr to be unbuffered
 ENV PYTHONDONTWRITEBYTECODE=1

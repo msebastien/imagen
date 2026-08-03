@@ -30,8 +30,8 @@ def load_settings():
         except Exception:
             pass
     return {
-        "api_key": "",
-        "project_id": "",
+        "google_api_key": "",
+        "google_project_id": "",
         "gcs_bucket": "",
         "use_gcs_for_refs": False,
         "byteplus_api_key": "",
@@ -39,12 +39,16 @@ def load_settings():
 
 
 def save_settings(
-    api_key: str, project_id: str, gcs_bucket: str, use_gcs_for_refs: bool, byteplus_api_key: str
+    google_api_key: str,
+    google_project_id: str,
+    gcs_bucket: str,
+    use_gcs_for_refs: bool,
+    byteplus_api_key: str,
 ):
     """Saves application settings to a local JSON file."""
     settings = {
-        "api_key": api_key.strip(),
-        "project_id": project_id.strip(),
+        "google_api_key": google_api_key.strip(),
+        "google_project_id": google_project_id.strip(),
         "gcs_bucket": gcs_bucket.strip(),
         "use_gcs_for_refs": use_gcs_for_refs,
         "byteplus_api_key": byteplus_api_key.strip(),
@@ -84,19 +88,61 @@ def estimate_batch_cost_display(model: str, resolution: str, batch_size: int) ->
     return f"**Estimated Batch Cost (~50% off):** {format_currency(total_cents)}"
 
 
-async def check_connection(api_key: str, project_id: str) -> str:
-    # Primarily checks Nano Banana; BytePlus connection is strictly validated at runtime
-    client = NanoBananaClient(api_key, project_id)
+async def check_connection_gemini(google_api_key: str, google_project_id: str) -> str:
+    """
+    Checks the connection status of the Gemini API.
+    Args:
+        google_api_key (str): The Google API key.
+        google_project_id (str): The Google project ID.
+
+    Returns:
+        str: A status message indicating whether the Gemini API is reachable or not.
+    """
+    client = NanoBananaClient(google_api_key, google_project_id)
     is_reachable = await client.check_reachability()
     if is_reachable:
-        return "🟢 **API Status:** Connected & Reachable (Google Cloud)"
-    return "🔴 **API Status:** Disconnected / Invalid Google Credentials"
+        return "🟢 **Gemini API Status:** Connected & Reachable"
+    return "🔴 **Gemini API Status:** Disconnected / Invalid Google Credentials"
+
+
+async def check_connection_byteplus(byteplus_api_key: str) -> str:
+    """
+    Checks the connection status of the BytePlus API.
+    Args:
+        byteplus_api_key (str): The BytePlus API key.
+
+    Returns:
+        str: A status message indicating whether the BytePlus API is reachable or not.
+    """
+    client = BytePlusClient(byteplus_api_key)
+    is_reachable = await client.check_reachability()
+    if is_reachable:
+        return "🟢 **BytePlus API Status:** Connected & Reachable"
+    return "🔴 **BytePlus API Status:** Disconnected / Invalid BytePlus Credentials"
+
+
+async def check_connection_all(
+    google_api_key: str, google_project_id: str, byteplus_api_key: str
+) -> tuple:
+    """
+    Checks the connection status of both Gemini and BytePlus APIs.
+    Args:
+        google_api_key (str): The Google API key.
+        google_project_id (str): The Google project ID.
+        byteplus_api_key (str): The BytePlus API key.
+
+    Returns:
+        tuple: A tuple containing the status messages for both APIs.
+    """
+    gemini_status = await check_connection_gemini(google_api_key, google_project_id)
+    byteplus_status = await check_connection_byteplus(byteplus_api_key)
+    return gemini_status, byteplus_status
 
 
 async def process_generation(
     engine: str,
-    api_key: str,
-    project_id: str,
+    google_api_key: str,
+    google_project_id: str,
     byteplus_api_key: str,
     prompt: str,
     model: str,
@@ -147,7 +193,7 @@ async def process_generation(
         # Google Vertex / AI Studio
         else:
             # Existing Cloud API Logic
-            if not api_key.strip() and not project_id.strip():
+            if not google_api_key.strip() and not google_project_id.strip():
                 raise gr.Error(
                     "Missing Credentials. Please provide an API Key or Project ID in Settings."
                 )
@@ -162,7 +208,7 @@ async def process_generation(
             if img_paths and len(img_paths) > 16:
                 raise gr.Error("Maximum 16 reference images allowed.")
 
-            client = NanoBananaClient(api_key, project_id)
+            client = NanoBananaClient(google_api_key, google_project_id)
             images = await client.generate_images_batch(
                 prompt,
                 model,
@@ -175,7 +221,7 @@ async def process_generation(
             )
 
             cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
-            stat_key = api_key if api_key else project_id
+            stat_key = google_api_key if google_api_key else google_project_id
     except Exception as e:
         raise gr.Error(str(e))
 
@@ -200,8 +246,8 @@ async def process_generation(
 
 
 async def submit_batch_task(
-    api_key: str,
-    project_id: str,
+    google_api_key: str,
+    google_project_id: str,
     prompt: str,
     model: str,
     resolution: str,
@@ -214,7 +260,7 @@ async def submit_batch_task(
         raise gr.Error("Prompt cannot be empty.")
     if not gcs_bucket.strip():
         raise gr.Error("Google Cloud Storage Bucket Name is required for Batch jobs.")
-    if not api_key.strip() and not project_id.strip():
+    if not google_api_key.strip() and not google_project_id.strip():
         raise gr.Error("Missing Credentials. Please provide an API Key or Project ID in Settings.")
 
     img_paths = [img.name for img in input_images] if input_images else None
@@ -222,7 +268,7 @@ async def submit_batch_task(
         raise gr.Error("Maximum 16 reference images allowed.")
 
     try:
-        client = NanoBananaClient(api_key, project_id)
+        client = NanoBananaClient(google_api_key, google_project_id)
         job_id = await client.submit_batch_job(
             prompt=prompt,
             model_name=model,
@@ -247,9 +293,9 @@ async def submit_batch_task(
         raise gr.Error(f"Batch Submission Error: {str(e)}")
 
 
-async def refresh_job_statuses(api_key: str, project_id: str):
+async def refresh_job_statuses(google_api_key: str, google_project_id: str):
     updated_cache = []
-    client = NanoBananaClient(api_key, project_id)
+    client = NanoBananaClient(google_api_key, google_project_id)
 
     global job_cache
     for job in job_cache:
@@ -288,7 +334,9 @@ async def refresh_job_statuses(api_key: str, project_id: str):
     return gr.update(value=table_rows)
 
 
-async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bucket: str):
+async def fetch_completed_job(
+    google_api_key: str, google_project_id: str, job_id: str, gcs_bucket: str
+):
     if not job_id.strip():
         raise gr.Error("Please enter a valid Job ID.")
     if not gcs_bucket.strip():
@@ -311,7 +359,7 @@ async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bu
         )
 
     try:
-        client = NanoBananaClient(api_key, project_id)
+        client = NanoBananaClient(google_api_key, google_project_id)
 
         # 2. Download images from GCS(will raise RuntimeError if missing/already deleted)
         images = await client.download_batch_results(job_id, gcs_bucket)
@@ -336,7 +384,7 @@ async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bu
         cost_per_img = config.BATCH_COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
         total_cost = int(cost_per_img * len(images))
 
-        stat_key = api_key if api_key else project_id
+        stat_key = google_api_key if google_api_key else google_project_id
         database.update_stats(stat_key, len(images), total_cost)
 
         # 5. Clean up GCS files so they cannot be fetched again
@@ -356,7 +404,9 @@ async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bu
         raise gr.Error(f"{str(e)}")
 
 
-async def discard_batch_job(api_key: str, project_id: str, job_id: str, gcs_bucket: str):
+async def discard_batch_job(
+    google_api_key: str, google_project_id: str, job_id: str, gcs_bucket: str
+):
     if not job_id.strip():
         raise gr.Error("Please enter a valid Job ID.")
     if not gcs_bucket.strip():
@@ -365,7 +415,7 @@ async def discard_batch_job(api_key: str, project_id: str, job_id: str, gcs_buck
     global job_cache
 
     try:
-        client = NanoBananaClient(api_key, project_id)
+        client = NanoBananaClient(google_api_key, google_project_id)
         # 1. Clean up input and output JSONL artifacts from GCS
         await client.delete_batch_job_files(job_id, gcs_bucket)
     except Exception:
@@ -392,9 +442,9 @@ def get_stats_display(key: str):
     )
 
 
-def load_initial_stats(api_key: str, project_id: str):
+def load_initial_stats(google_api_key: str, google_project_id: str):
     """Fetches usage stats based on the available active credential."""
-    stat_key = api_key if api_key else project_id
+    stat_key = google_api_key if google_api_key else google_project_id
     return get_stats_display(stat_key)
 
 
@@ -424,7 +474,10 @@ def handle_clear_cache():
 # --- Gradio UI Layout ---
 with gr.Blocks() as ui:
     gr.Markdown("# 🍌 Imagen AI Studio")
-    status_indicator = gr.Markdown("⚪ **API Status:** Waiting for credentials...")
+    gemini_status_indicator = gr.Markdown(
+        "⚪ **Gemini API Status:** Waiting for credentials (API key or project ID)..."
+    )
+    byteplus_status_indicator = gr.Markdown("⚪ **BytePlus API Status:** Waiting for API key...")
 
     with gr.Tabs():
         # --- Real-Time Generation Tab ---
@@ -578,14 +631,14 @@ with gr.Blocks() as ui:
         # --- Settings Tab ---
         with gr.Tab("Settings"):
             gr.Markdown("### 1. Google Cloud Platform Authentication")
-            api_key_input = gr.Textbox(
+            google_api_key_input = gr.Textbox(
                 label="Gemini API Key",
                 type="password",
-                value=app_settings.get("api_key", ""),
+                value=app_settings.get("google_api_key", ""),
             )
-            project_id_input = gr.Textbox(
+            google_project_id_input = gr.Textbox(
                 label="Google Cloud Project ID (Vertex AI Postpay Routing)",
-                value=app_settings.get("project_id", ""),
+                value=app_settings.get("google_project_id", ""),
             )
             gcs_bucket_input = gr.Textbox(
                 label="Google Cloud Storage Bucket Name",
@@ -645,8 +698,8 @@ with gr.Blocks() as ui:
     btn_save_settings.click(
         fn=save_settings,
         inputs=[
-            api_key_input,
-            project_id_input,
+            google_api_key_input,
+            google_project_id_input,
             gcs_bucket_input,
             use_gcs_for_refs_input,
             byteplus_api_key_input,
@@ -655,9 +708,9 @@ with gr.Blocks() as ui:
 
     # Connection Test & Clear Prompt
     btn_test_conn.click(
-        fn=check_connection,
-        inputs=[api_key_input, project_id_input],
-        outputs=status_indicator,
+        fn=check_connection_all,
+        inputs=[google_api_key_input, google_project_id_input, byteplus_api_key_input],
+        outputs=[gemini_status_indicator, byteplus_status_indicator],
     )
 
     btn_clear_prompt.click(fn=clear_ui_prompt, outputs=prompt_box)
@@ -667,7 +720,7 @@ with gr.Blocks() as ui:
     btn_clear_cache.click(
         fn=handle_clear_cache,
         outputs=[
-            status_indicator,
+            gemini_status_indicator,
             history_gallery,
             history_table,
         ],
@@ -676,7 +729,7 @@ with gr.Blocks() as ui:
     # Usage Stats
     btn_refresh_stats.click(
         fn=load_initial_stats,
-        inputs=[api_key_input, project_id_input],
+        inputs=[google_api_key_input, google_project_id_input],
         outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
     )
 
@@ -706,8 +759,8 @@ with gr.Blocks() as ui:
         fn=process_generation,
         inputs=[
             engine_radio,
-            api_key_input,
-            project_id_input,
+            google_api_key_input,
+            google_project_id_input,
             byteplus_api_key_input,
             prompt_box,
             model_dropdown,
@@ -731,8 +784,8 @@ with gr.Blocks() as ui:
     b_btn_send.click(
         fn=submit_batch_task,
         inputs=[
-            api_key_input,
-            project_id_input,
+            google_api_key_input,
+            google_project_id_input,
             b_prompt_box,
             b_model_dropdown,
             b_res_radio,
@@ -746,14 +799,14 @@ with gr.Blocks() as ui:
 
     b_refresh_btn.click(
         fn=refresh_job_statuses,
-        inputs=[api_key_input, project_id_input],
+        inputs=[google_api_key_input, google_project_id_input],
         outputs=[job_table],
     )
 
     # Batch File Fetching & Cleanup
     fetch_btn.click(
         fn=fetch_completed_job,
-        inputs=[api_key_input, project_id_input, fetch_job_id, gcs_bucket_input],
+        inputs=[google_api_key_input, google_project_id_input, fetch_job_id, gcs_bucket_input],
         outputs=[
             batch_gallery,
             fetch_msg,
@@ -768,7 +821,7 @@ with gr.Blocks() as ui:
     # Discard Batch Job without downloading
     discard_btn.click(
         fn=discard_batch_job,
-        inputs=[api_key_input, project_id_input, fetch_job_id, gcs_bucket_input],
+        inputs=[google_api_key_input, google_project_id_input, fetch_job_id, gcs_bucket_input],
         outputs=[
             fetch_msg,
             job_table,
@@ -778,7 +831,7 @@ with gr.Blocks() as ui:
     # Auto-load history and stats on app startup / page refresh
     ui.load(fn=load_history, outputs=[history_gallery, history_table]).then(
         fn=load_initial_stats,
-        inputs=[api_key_input, project_id_input],
+        inputs=[google_api_key_input, google_project_id_input],
         outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
     )
 

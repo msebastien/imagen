@@ -374,7 +374,7 @@ def handle_clear_cache():
 
 # --- Gradio UI Layout ---
 with gr.Blocks() as ui:
-    gr.Markdown("# 🍌 Imagen AI Studio: Nano Banana Edition")
+    gr.Markdown("# 🍌 Imagen AI Studio")
     status_indicator = gr.Markdown("⚪ **API Status:** Waiting for credentials...")
 
     with gr.Tabs():

@@ -8,6 +8,15 @@ import math
 
 
 def calculate_dimensions(resolution: str, aspect_ratio: str):
+    """
+    Calculates the ideal width and height for image generation based on resolution and aspect ratio.
+    Args:
+        resolution (str): The target resolution, e.g., "1K", "2K", or "4K".
+        aspect_ratio (str): The desired aspect ratio in the format "width:height", e.g., "16:9".
+
+    Returns:
+        tuple: A tuple containing the ideal width and height.
+    """
     # 1. Determine base target area (1K defaults to 1024x1024)
     base_dim = 1024
     if resolution == "2K":

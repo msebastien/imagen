@@ -431,9 +431,16 @@ class LocalImageGenerator:
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"Local model not found: {self.model_path}")
 
-        # Target the dedicated GPU
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
+        # 1. Device Selection: Target CUDA first, fallback to Vulkan, then CPU
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif hasattr(torch, "is_vulkan_available") and torch.is_vulkan_available():
+            self.device = "vulkan"
+        else:
+            self.device = "cpu"
+
+        # 2. Hardware Acceleration: Use float16 for CUDA and Vulkan to halve VRAM requirements
+        self.torch_dtype = torch.float16 if self.device in ["cuda", "vulkan"] else torch.float32
 
     def _calculate_dimensions(self, resolution: str, aspect_ratio: str):
         import math
@@ -481,9 +488,22 @@ class LocalImageGenerator:
             if self.model_path.endswith(".safetensors"):
                 from diffusers import StableDiffusionXLPipeline
 
+                # Load without immediately pushing to a device
                 pipe = StableDiffusionXLPipeline.from_single_file(
                     self.model_path, torch_dtype=self.torch_dtype, use_safetensors=True
-                ).to(self.device)
+                )
+
+                # Low VRAM Optimizations (< 6GB)
+                if self.device == "cuda":
+                    # Offloads sub-models to CPU RAM, only moving them to the GPU during their active pass
+                    pipe.enable_model_cpu_offload()
+                    # Slices and tiles the VAE to prevent OOM crashes during the final decoding step (crucial for 2K/4K)
+                    pipe.enable_vae_slicing()
+                    pipe.enable_vae_tiling()
+                elif self.device == "vulkan":
+                    pipe.to("vulkan")
+                else:
+                    pipe.to("cpu")
 
                 result = pipe(
                     prompt=prompt, num_images_per_prompt=batch_size, width=width, height=height
@@ -498,7 +518,8 @@ class LocalImageGenerator:
             elif self.model_path.endswith(".gguf"):
                 from stable_diffusion_cpp import StableDiffusion
 
-                # sd.cpp handles its own threading and offloading
+                # sd.cpp handles memory mapping and Vulkan offloading automatically
+                # based on its compilation flags.
                 pipe = StableDiffusion(model_path=self.model_path, n_threads=8)
                 images = pipe.txt2img(
                     prompt=prompt,

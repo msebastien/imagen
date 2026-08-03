@@ -20,15 +20,12 @@ database.init_db()
 # In-memory session job tracking for active Batch API jobs
 job_cache = []
 
-# --- Settings Management ---
-SETTINGS_FILE = "settings.json"
-
 
 def load_settings():
     """Loads application settings from a local JSON file."""
-    if os.path.exists(SETTINGS_FILE):
+    if os.path.exists(config.SETTINGS_FILE):
         try:
-            with open(SETTINGS_FILE, "r") as f:
+            with open(config.SETTINGS_FILE, "r") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -53,7 +50,7 @@ def save_settings(
         "byteplus_api_key": byteplus_api_key.strip(),
     }
     try:
-        with open(SETTINGS_FILE, "w") as f:
+        with open(config.SETTINGS_FILE, "w") as f:
             json.dump(settings, f, indent=4)
         gr.Info("Settings successfully saved to settings.json!")
     except Exception as e:

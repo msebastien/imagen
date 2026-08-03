@@ -60,5 +60,8 @@ def get_local_models():
     return [f for f in os.listdir(LOCAL_MODELS_DIR) if f.endswith((".safetensors", ".gguf"))]
 
 
+# --- Settings ---
+SETTINGS_FILE = "settings.json"
+
 # --- Database ---
 DB_PATH = "nano_banana_cache.db"

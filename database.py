@@ -43,6 +43,9 @@ def init_db():
 
 
 def hash_key(api_key: str) -> str:
+    # Do not hash the local fallback identifier
+    if api_key == "LOCAL_COMPUTE":
+        return api_key
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 

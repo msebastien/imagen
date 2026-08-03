@@ -87,6 +87,7 @@ async def check_connection(api_key: str, project_id: str) -> str:
 
 
 async def process_generation(
+    engine: str,
     api_key: str,
     project_id: str,
     prompt: str,
@@ -100,35 +101,56 @@ async def process_generation(
 ):
     if not prompt.strip():
         raise gr.Error("Prompt cannot be empty.")
-    if not api_key.strip() and not project_id.strip():
-        raise gr.Error("Missing Credentials. Please provide an API Key or Project ID in Settings.")
     if batch_size < 1 or batch_size > 8:
         raise gr.Error("Batch size must be between 1 and 8.")
 
-    # Catch bucket requirement early if the user checked the GCS toggle
-    img_paths = [img.name for img in input_images] if input_images else None
-    if img_paths and use_gcs_for_refs and not gcs_bucket.strip():
-        raise gr.Error("A GCS Bucket Name is required when GCS reference uploading is enabled.")
-
-    if img_paths and len(img_paths) > 16:
-        raise gr.Error("Maximum 16 reference images allowed.")
-
     try:
-        client = NanoBananaClient(api_key, project_id)
-        images = await client.generate_images_batch(
-            prompt,
-            model,
-            int(batch_size),
-            resolution,
-            aspect_ratio,
-            gcs_bucket,
-            use_gcs_for_refs,
-            img_paths,
-        )
+        if engine == "Local Inference":
+            # Local inference path using the LocalImageGenerator class
+            from api_client import LocalImageGenerator
+
+            # Bypass cloud authentication and GCS completely
+            local_client = LocalImageGenerator(model)
+            images = await local_client.generate_images_batch(
+                prompt, int(batch_size), resolution, aspect_ratio
+            )
+            # Local models cost $0
+            cost_per_img = 0
+            stat_key = "LOCAL_COMPUTE"
+        else:
+            # Existing Cloud API Logic
+            if not api_key.strip() and not project_id.strip():
+                raise gr.Error(
+                    "Missing Credentials. Please provide an API Key or Project ID in Settings."
+                )
+
+            # Catch bucket requirement early if the user checked the GCS toggle
+            img_paths = [img.name for img in input_images] if input_images else None
+            if img_paths and use_gcs_for_refs and not gcs_bucket.strip():
+                raise gr.Error(
+                    "A GCS Bucket Name is required when GCS reference uploading is enabled."
+                )
+
+            if img_paths and len(img_paths) > 16:
+                raise gr.Error("Maximum 16 reference images allowed.")
+
+            client = NanoBananaClient(api_key, project_id)
+            images = await client.generate_images_batch(
+                prompt,
+                model,
+                int(batch_size),
+                resolution,
+                aspect_ratio,
+                gcs_bucket,
+                use_gcs_for_refs,
+                img_paths,
+            )
+
+            cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
+            stat_key = api_key if api_key else project_id
     except Exception as e:
         raise gr.Error(str(e))
 
-    cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
     total_cost = cost_per_img * len(images)
 
     saved_paths = []
@@ -141,7 +163,6 @@ async def process_generation(
         saved_paths.append(filepath)
         database.cache_image(prompt, filepath, model, resolution)
 
-    stat_key = api_key if api_key else project_id
     database.update_stats(stat_key, len(images), total_cost)
 
     return saved_paths, *get_stats_display(stat_key)
@@ -391,6 +412,13 @@ with gr.Blocks() as ui:
                         btn_send = gr.Button("🚀 Send Request", variant="primary")
                         btn_clear_prompt = gr.Button("🗑️ Clear Prompt")
 
+                    # New Engine Toggle
+                    engine_radio = gr.Radio(
+                        choices=["Cloud API (Nano Banana)", "Local Inference"],
+                        value="Cloud API (Nano Banana)",
+                        label="Inference Engine",
+                    )
+
                     with gr.Accordion("Advanced Parameters", open=True):
                         model_dropdown = gr.Dropdown(
                             choices=config.AVAILABLE_MODELS,
@@ -613,10 +641,25 @@ with gr.Blocks() as ui:
     # History Refresh
     btn_refresh_history.click(fn=load_history, outputs=[history_gallery, history_table])
 
+    # Dynamic Model List based on Engine
+    def update_model_list(engine_choice):
+        if engine_choice == "Local Inference":
+            local_models = config.get_local_models()
+            if not local_models:
+                return gr.update(
+                    choices=["NO MODELS FOUND IN /models"], value="NO MODELS FOUND IN /models"
+                )
+            return gr.update(choices=local_models, value=local_models[0])
+        else:
+            return gr.update(choices=config.AVAILABLE_MODELS, value=config.AVAILABLE_MODELS[0])
+
+    engine_radio.change(fn=update_model_list, inputs=engine_radio, outputs=model_dropdown)
+
     # Real-Time Generation Execution
     btn_send.click(
         fn=process_generation,
         inputs=[
+            engine_radio,
             api_key_input,
             project_id_input,
             prompt_box,

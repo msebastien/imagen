@@ -3,6 +3,9 @@ config.py
 Configuration constants and cost tables for the Nano Banana API.
 """
 
+import os
+
+# --- Cloud Models ---
 # Available models based on the Nano Banana family
 AVAILABLE_MODELS = [
     "gemini-3.1-flash-lite-image",  # Nano Banana 2 Lite
@@ -31,4 +34,17 @@ BATCH_COST_TABLE_CENTS = {
     "gemini-2.5-flash-image": {"1K": 1, "2K": 2, "4K": 4},
 }
 
+# --- Local Models ---
+LOCAL_MODELS_DIR = "models"
+os.makedirs(LOCAL_MODELS_DIR, exist_ok=True)
+
+
+def get_local_models():
+    """Scans the local directory for GGUF and SafeTensors files."""
+    if not os.path.exists(LOCAL_MODELS_DIR):
+        return []
+    return [f for f in os.listdir(LOCAL_MODELS_DIR) if f.endswith((".safetensors", ".gguf"))]
+
+
+# --- Database ---
 DB_PATH = "nano_banana_cache.db"

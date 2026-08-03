@@ -5,6 +5,7 @@ via Google Cloud AI Platform (formerly Vertex AI).
 Includes decoupled methods for standard Generation and Google Cloud Batch API processing.
 """
 
+import os
 import json
 import time
 import asyncio
@@ -415,3 +416,99 @@ class NanoBananaClient:
                     input_blob.delete()
             except Exception:
                 pass
+
+
+class LocalImageGenerator:
+    """
+    Handles local execution of .safetensors and .gguf image generation models.
+    """
+
+    def __init__(self, model_filename: str):
+        import torch
+        from config import LOCAL_MODELS_DIR
+
+        self.model_path = os.path.join(LOCAL_MODELS_DIR, model_filename)
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"Local model not found: {self.model_path}")
+
+        # Target the dedicated GPU
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
+
+    def _calculate_dimensions(self, resolution: str, aspect_ratio: str):
+        import math
+
+        # 1. Determine base target area (1K defaults to 1024x1024)
+        base_dim = 1024
+        if resolution == "2K":
+            base_dim = 2048
+        elif resolution == "4K":
+            base_dim = 4096
+
+        target_area = base_dim * base_dim
+
+        # 2. Parse the string aspect ratio (e.g., "16:9")
+        w_ratio, h_ratio = map(float, aspect_ratio.split(":"))
+        ratio = w_ratio / h_ratio
+
+        # 3. Compute dimensions maintaining total pixel count
+        ideal_height = math.sqrt(target_area / ratio)
+        ideal_width = ideal_height * ratio
+
+        # 4. Stable Diffusion requires dimensions to be multiples of 8
+        width = int(round(ideal_width / 8.0) * 8)
+        height = int(round(ideal_height / 8.0) * 8)
+
+        return width, height
+
+    async def generate_images_batch(
+        self, prompt: str, batch_size: int, resolution: str, aspect_ratio: str
+    ) -> List[Image.Image]:
+        """Runs the local model generation in a background thread to prevent UI blocking."""
+        return await asyncio.to_thread(
+            self._generate_sync, prompt, batch_size, resolution, aspect_ratio
+        )
+
+    def _generate_sync(self, prompt: str, batch_size: int, resolution: str, aspect_ratio: str):
+        import torch
+
+        # Dynamically calculate the aspect-ratio aware dimensions
+        width, height = self._calculate_dimensions(resolution, aspect_ratio)
+
+        images = []
+
+        try:
+            if self.model_path.endswith(".safetensors"):
+                from diffusers import StableDiffusionXLPipeline
+
+                pipe = StableDiffusionXLPipeline.from_single_file(
+                    self.model_path, torch_dtype=self.torch_dtype, use_safetensors=True
+                ).to(self.device)
+
+                result = pipe(
+                    prompt=prompt, num_images_per_prompt=batch_size, width=width, height=height
+                )
+                images = result.images
+
+                # Aggressive VRAM cleanup
+                del pipe
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+
+            elif self.model_path.endswith(".gguf"):
+                from stable_diffusion_cpp import StableDiffusion
+
+                # sd.cpp handles its own threading and offloading
+                pipe = StableDiffusion(model_path=self.model_path, n_threads=8)
+                images = pipe.txt2img(
+                    prompt=prompt,
+                    sample_steps=20,
+                    width=width,
+                    height=height,
+                    batch_count=batch_size,
+                )
+                del pipe
+
+            return images
+        except Exception as e:
+            raise RuntimeError(f"Local Model Inference Error: {str(e)}")

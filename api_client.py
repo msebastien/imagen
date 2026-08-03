@@ -23,6 +23,8 @@ from google.genai.types import FinishReason
 from google.cloud import storage
 from google.cloud.storage.blob import Blob
 
+import utils
+
 
 class BytePlusClient:
     """
@@ -64,32 +66,6 @@ class BytePlusClient:
             input_image_paths,
         )
 
-    def _calculate_dimensions(self, resolution: str, aspect_ratio: str):
-        import math
-
-        # 1. Determine base target area (1K defaults to 1024x1024)
-        base_dim = 1024
-        if resolution == "2K":
-            base_dim = 2048
-        elif resolution == "4K":
-            base_dim = 4096
-
-        target_area = base_dim * base_dim
-
-        # 2. Parse the string aspect ratio (e.g., "16:9")
-        w_ratio, h_ratio = map(float, aspect_ratio.split(":"))
-        ratio = w_ratio / h_ratio
-
-        # 3. Compute dimensions maintaining total pixel count
-        ideal_height = math.sqrt(target_area / ratio)
-        ideal_width = ideal_height * ratio
-
-        # 4. Stable Diffusion requires dimensions to be multiples of 8
-        width = int(round(ideal_width / 8.0) * 8)
-        height = int(round(ideal_height / 8.0) * 8)
-
-        return width, height
-
     def _generate_sync(
         self,
         prompt: str,
@@ -101,7 +77,7 @@ class BytePlusClient:
     ) -> List[Image.Image]:
         # 1. Translate string resolutions and aspect ratios to explicit pixel targets
         # Dynamically calculate the aspect-ratio aware dimensions
-        width, height = self._calculate_dimensions(resolution, aspect_ratio)
+        width, height = utils.calculate_dimensions(resolution, aspect_ratio)
 
         # 2. Construct OpenAI-compatible ModelArk JSON payload
         payload = {
@@ -584,32 +560,6 @@ class LocalImageGenerator:
         # 2. Hardware Acceleration: Use float16 for CUDA and Vulkan to halve VRAM requirements
         self.torch_dtype = torch.float16 if self.device in ["cuda", "vulkan"] else torch.float32
 
-    def _calculate_dimensions(self, resolution: str, aspect_ratio: str):
-        import math
-
-        # 1. Determine base target area (1K defaults to 1024x1024)
-        base_dim = 1024
-        if resolution == "2K":
-            base_dim = 2048
-        elif resolution == "4K":
-            base_dim = 4096
-
-        target_area = base_dim * base_dim
-
-        # 2. Parse the string aspect ratio (e.g., "16:9")
-        w_ratio, h_ratio = map(float, aspect_ratio.split(":"))
-        ratio = w_ratio / h_ratio
-
-        # 3. Compute dimensions maintaining total pixel count
-        ideal_height = math.sqrt(target_area / ratio)
-        ideal_width = ideal_height * ratio
-
-        # 4. Stable Diffusion requires dimensions to be multiples of 8
-        width = int(round(ideal_width / 8.0) * 8)
-        height = int(round(ideal_height / 8.0) * 8)
-
-        return width, height
-
     async def generate_images_batch(
         self, prompt: str, batch_size: int, resolution: str, aspect_ratio: str
     ) -> List[Image.Image]:
@@ -622,7 +572,7 @@ class LocalImageGenerator:
         import torch
 
         # Dynamically calculate the aspect-ratio aware dimensions
-        width, height = self._calculate_dimensions(resolution, aspect_ratio)
+        width, height = utils.calculate_dimensions(resolution, aspect_ratio)
 
         images = []
 

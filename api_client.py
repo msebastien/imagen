@@ -1,8 +1,9 @@
 """
 api_client.py
-Handles asynchronous interactions with the Nano Banana API via Google Cloud AI Platform (formerly Vertex AI),
-BytePlus ModelArk API for Seedream models, and Local Inference pipelines.
-For the Nano Banana API, it also includes decoupled methods for standard Generation and Google Cloud Batch API processing.
+Handles asynchronous interactions with the Nano Banana API via Google Cloud AI Platform
+(formerly Vertex AI), BytePlus ModelArk API for Seedream models, and Local Inference pipelines.
+For the Nano Banana API, it also includes decoupled methods for standard Generation
+and Google Cloud Batch API processing.
 """
 
 import os
@@ -34,7 +35,10 @@ class BytePlusClient:
         self.base_url = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
 
     async def check_reachability(self) -> bool:
-        """Lightweight verification logic (skipped for BytePlus to avoid arbitrary inference costs)."""
+        """
+        Lightweight verification logic
+        (skipped for BytePlus to avoid arbitrary inference costs).
+        """
         return True if self.api_key else False
 
     async def generate_images_batch(
@@ -153,7 +157,7 @@ class BytePlusClient:
             if hasattr(e, "response") and e.response is not None:
                 try:
                     err_msg += f" - Response JSON: {json.dumps(e.response.json())}"
-                except:
+                except (ValueError, TypeError):
                     err_msg += f" - Response Text: {e.response.text}"
             raise RuntimeError(f"BytePlus API Error: {err_msg}")
 
@@ -633,9 +637,11 @@ class LocalImageGenerator:
 
                 # Low VRAM Optimizations (< 6GB)
                 if self.device == "cuda":
-                    # Offloads sub-models to CPU RAM, only moving them to the GPU during their active pass
+                    # Offloads sub-models to CPU RAM, only moving them to the GPU
+                    # during their active pass.
                     pipe.enable_model_cpu_offload()
-                    # Slices and tiles the VAE to prevent OOM crashes during the final decoding step (crucial for 2K/4K)
+                    # Slices and tiles the VAE to prevent OOM crashes
+                    # during the final decoding step (crucial for 2K/4K).
                     pipe.enable_vae_slicing()
                     pipe.enable_vae_tiling()
                 elif self.device == "vulkan":

@@ -190,7 +190,7 @@ async def process_generation(
             cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
             stat_key = byteplus_api_key
 
-        # Google Vertex / AI Studio
+        # Google AI Platform (Vertex AI) / AI Studio
         else:
             # Existing Cloud API Logic
             if not google_api_key.strip() and not google_project_id.strip():

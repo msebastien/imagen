@@ -468,7 +468,8 @@ def load_history():
 
 def handle_clear_cache():
     database.clear_cache()
-    return gr.Info("Local cache and images successfully cleared."), [], []
+    gr.Info("Local cache and images successfully cleared.")
+    return None, None, [], []
 
 
 # --- Gradio UI Layout ---
@@ -721,6 +722,7 @@ with gr.Blocks() as ui:
         fn=handle_clear_cache,
         outputs=[
             gemini_status_indicator,
+            byteplus_status_indicator,
             history_gallery,
             history_table,
         ],

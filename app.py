@@ -258,7 +258,7 @@ async def refresh_job_statuses(api_key: str, project_id: str):
         prompt_preview = prompt[:35] + "..." if len(prompt) > 35 else prompt
         current_status = job[2]
         bucket = job[3]
-        model = job[4] if len(job) > 4 else config.AVAILABLE_MODELS[0]
+        model = job[4] if len(job) > 4 else config.GEMINI_IMAGE_MODELS[0]
         resolution = job[5] if len(job) > 5 else "1K"
 
         if current_status in [
@@ -318,7 +318,7 @@ async def fetch_completed_job(api_key: str, project_id: str, job_id: str, gcs_bu
 
         # 3. Extract model and resolution metadata from the matched cache entry
         prompt = matched_job[1] if len(matched_job) > 1 else "Unknown Prompt"
-        model = matched_job[4] if len(matched_job) > 4 else config.AVAILABLE_MODELS[0]
+        model = matched_job[4] if len(matched_job) > 4 else config.GEMINI_IMAGE_MODELS[0]
         resolution = matched_job[5] if len(matched_job) > 5 else "1K"
 
         saved_paths = []
@@ -453,8 +453,8 @@ with gr.Blocks() as ui:
 
                     with gr.Accordion("Advanced Parameters", open=True):
                         model_dropdown = gr.Dropdown(
-                            choices=config.AVAILABLE_MODELS,
-                            value=config.AVAILABLE_MODELS[0],
+                            choices=config.GEMINI_IMAGE_MODELS,
+                            value=config.GEMINI_IMAGE_MODELS[0],
                             label="Model",
                         )
                         with gr.Row():
@@ -507,8 +507,8 @@ with gr.Blocks() as ui:
 
                     with gr.Accordion("Advanced Parameters", open=True):
                         b_model_dropdown = gr.Dropdown(
-                            choices=config.AVAILABLE_MODELS,
-                            value=config.AVAILABLE_MODELS[0],
+                            choices=config.GEMINI_IMAGE_MODELS,
+                            value=config.GEMINI_IMAGE_MODELS[0],
                             label="Model",
                         )
                         with gr.Row():
@@ -695,7 +695,7 @@ with gr.Blocks() as ui:
         elif engine_choice == "BytePlus Cloud (Seedream)":
             return gr.update(choices=config.SEEDREAM_MODELS, value=config.SEEDREAM_MODELS[0])
         else:
-            return gr.update(choices=config.AVAILABLE_MODELS, value=config.AVAILABLE_MODELS[0])
+            return gr.update(choices=config.GEMINI_IMAGE_MODELS, value=config.GEMINI_IMAGE_MODELS[0])
 
     engine_radio.change(fn=update_model_list, inputs=engine_radio, outputs=model_dropdown)
 

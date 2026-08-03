@@ -7,7 +7,7 @@ import os
 
 # --- Cloud Models (Google GenAI) ---
 # Available models based on the Nano Banana family
-AVAILABLE_MODELS = [
+GEMINI_IMAGE_MODELS = [
     "gemini-3.1-flash-lite-image",  # Nano Banana 2 Lite
     "gemini-3.1-flash-image",  # Nano Banana 2
     "gemini-3-pro-image",  # Nano Banana Pro

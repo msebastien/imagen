@@ -1,6 +1,7 @@
 """
 utils.py
-Utility functions for image generation, including dimension calculations based on resolution and aspect ratio.
+Utility functions for image generation, including dimension calculations
+based on resolution and aspect ratio.
 """
 
 import math

@@ -695,7 +695,9 @@ with gr.Blocks() as ui:
         elif engine_choice == "BytePlus Cloud (Seedream)":
             return gr.update(choices=config.SEEDREAM_MODELS, value=config.SEEDREAM_MODELS[0])
         else:
-            return gr.update(choices=config.GEMINI_IMAGE_MODELS, value=config.GEMINI_IMAGE_MODELS[0])
+            return gr.update(
+                choices=config.GEMINI_IMAGE_MODELS, value=config.GEMINI_IMAGE_MODELS[0]
+            )
 
     engine_radio.change(fn=update_model_list, inputs=engine_radio, outputs=model_dropdown)
 

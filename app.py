@@ -101,8 +101,8 @@ async def check_connection_gemini(google_api_key: str, google_project_id: str) -
     client = NanoBananaClient(google_api_key, google_project_id)
     is_reachable = await client.check_reachability()
     if is_reachable:
-        return "🟢 **Gemini API Status:** Connected & Reachable"
-    return "🔴 **Gemini API Status:** Disconnected / Invalid Google Credentials"
+        return config.API_STATUS_MESSAGES["gemini"]["success"]
+    return config.API_STATUS_MESSAGES["gemini"]["failure"]
 
 
 async def check_connection_byteplus(byteplus_api_key: str) -> str:
@@ -117,8 +117,8 @@ async def check_connection_byteplus(byteplus_api_key: str) -> str:
     client = BytePlusClient(byteplus_api_key)
     is_reachable = await client.check_reachability()
     if is_reachable:
-        return "🟢 **BytePlus API Status:** Connected & Reachable"
-    return "🔴 **BytePlus API Status:** Disconnected / Invalid BytePlus Credentials"
+        return config.API_STATUS_MESSAGES["byteplus"]["success"]
+    return config.API_STATUS_MESSAGES["byteplus"]["failure"]
 
 
 async def check_connection_all(
@@ -469,16 +469,19 @@ def load_history():
 def handle_clear_cache():
     database.clear_cache()
     gr.Info("Local cache and images successfully cleared.")
-    return None, None, [], []
+    return (
+        config.API_STATUS_MESSAGES["gemini"]["default"],
+        config.API_STATUS_MESSAGES["byteplus"]["default"],
+        [],
+        [],
+    )
 
 
 # --- Gradio UI Layout ---
 with gr.Blocks() as ui:
     gr.Markdown("# 🍌 Imagen AI Studio")
-    gemini_status_indicator = gr.Markdown(
-        "⚪ **Gemini API Status:** Waiting for credentials (API key or project ID)..."
-    )
-    byteplus_status_indicator = gr.Markdown("⚪ **BytePlus API Status:** Waiting for API key...")
+    gemini_status_indicator = gr.Markdown(config.API_STATUS_MESSAGES["gemini"]["default"])
+    byteplus_status_indicator = gr.Markdown(config.API_STATUS_MESSAGES["byteplus"]["default"])
 
     with gr.Tabs():
         # --- Real-Time Generation Tab ---

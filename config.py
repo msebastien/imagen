@@ -65,3 +65,17 @@ SETTINGS_FILE = "settings.json"
 
 # --- Database ---
 DB_PATH = "nano_banana_cache.db"
+
+# --- API status messages ---
+API_STATUS_MESSAGES = {
+    "gemini": {
+        "success": "🟢 **Gemini API Status:** Connected & Reachable",
+        "failure": "🔴 **Gemini API Status:** Disconnected / Invalid Google Credentials",
+        "default": "⚪ **Gemini API Status:** Waiting for credentials (API key or project ID)...",
+    },
+    "byteplus": {
+        "success": "🟢 **BytePlus API Status:** Connected & Reachable",
+        "failure": "🔴 **BytePlus API Status:** Disconnected / Invalid BytePlus Credentials",
+        "default": "⚪ **BytePlus API Status:** Waiting for API key...",
+    },
+}

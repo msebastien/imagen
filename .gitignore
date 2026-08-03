@@ -1,5 +1,6 @@
 # Project: Generated files
 outputs/
+models/
 settings.json
 
 # Database

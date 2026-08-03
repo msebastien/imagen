@@ -32,15 +32,16 @@ def load_settings():
                 return json.load(f)
         except Exception:
             pass
-    return {"api_key": "", "project_id": "", "gcs_bucket": ""}
+    return {"api_key": "", "project_id": "", "gcs_bucket": "", "use_gcs_for_refs": False}
 
 
-def save_settings(api_key: str, project_id: str, gcs_bucket: str):
+def save_settings(api_key: str, project_id: str, gcs_bucket: str, use_gcs_for_refs: bool):
     """Saves application settings to a local JSON file."""
     settings = {
         "api_key": api_key.strip(),
         "project_id": project_id.strip(),
         "gcs_bucket": gcs_bucket.strip(),
+        "use_gcs_for_refs": use_gcs_for_refs,
     }
     try:
         with open(SETTINGS_FILE, "w") as f:
@@ -93,6 +94,8 @@ async def process_generation(
     resolution: str,
     aspect_ratio: str,
     batch_size: int,
+    gcs_bucket: str,
+    use_gcs_for_refs: bool,
     input_images: list,
 ):
     if not prompt.strip():
@@ -102,14 +105,25 @@ async def process_generation(
     if batch_size < 1 or batch_size > 8:
         raise gr.Error("Batch size must be between 1 and 8.")
 
+    # Catch bucket requirement early if the user checked the GCS toggle
     img_paths = [img.name for img in input_images] if input_images else None
+    if img_paths and use_gcs_for_refs and not gcs_bucket.strip():
+        raise gr.Error("A GCS Bucket Name is required when GCS reference uploading is enabled.")
+
     if img_paths and len(img_paths) > 16:
         raise gr.Error("Maximum 16 reference images allowed.")
 
     try:
         client = NanoBananaClient(api_key, project_id)
         images = await client.generate_images_batch(
-            prompt, model, int(batch_size), resolution, aspect_ratio, img_paths
+            prompt,
+            model,
+            int(batch_size),
+            resolution,
+            aspect_ratio,
+            gcs_bucket,
+            use_gcs_for_refs,
+            img_paths,
         )
     except Exception as e:
         raise gr.Error(str(e))
@@ -520,6 +534,11 @@ with gr.Blocks() as ui:
                 placeholder="e.g. my-imagen-batch-bucket",
                 value=app_settings.get("gcs_bucket", ""),
             )
+            use_gcs_for_refs_input = gr.Checkbox(
+                label="Upload Real-Time Reference Images to Google Cloud Storage "
+                "(Bypasses payload limits)",
+                value=app_settings.get("use_gcs_for_refs", False),
+            )
 
             with gr.Row():
                 btn_save_settings = gr.Button("💾 Save Settings", variant="primary")
@@ -561,7 +580,7 @@ with gr.Blocks() as ui:
     # Save Settings
     btn_save_settings.click(
         fn=save_settings,
-        inputs=[api_key_input, project_id_input, gcs_bucket_input],
+        inputs=[api_key_input, project_id_input, gcs_bucket_input, use_gcs_for_refs_input],
     )
 
     # Connection Test & Clear Prompt
@@ -605,6 +624,8 @@ with gr.Blocks() as ui:
             res_radio,
             ar_dropdown,
             batch_slider,
+            gcs_bucket_input,
+            use_gcs_for_refs_input,
             input_gallery,
         ],
         outputs=[

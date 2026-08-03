@@ -66,88 +66,138 @@ class NanoBananaClient:
         batch_size: int,
         resolution: str,
         aspect_ratio: str,
+        gcs_bucket_name: str,
+        use_gcs_for_refs: bool = False,
         input_image_paths: Optional[List[str]] = None,
     ) -> List[Image.Image]:
         """
         Executes a real-time (on-demand) batch image generation request,
-        using Gemini's native multimodal capabilities.
+        with optional GCS offloading for large reference images.
         """
         if not self.client:
             raise ValueError("API Client not initialized. Please configure Settings.")
+        if input_image_paths and use_gcs_for_refs and not gcs_bucket_name.strip():
+            raise ValueError(
+                "A Google Cloud Storage Bucket Name is required to upload reference images."
+            )
 
         # 1. Compile the multimodal contents list (Text + Optional Reference Images)
         contents = [prompt]
-        if input_image_paths:
-            for img_path in input_image_paths[:16]:
-                try:
-                    img = Image.open(img_path)
-                    contents.append(img)
-                except Exception as e:
-                    raise ValueError(f"Failed to process input image {img_path}: {str(e)}")
+        uploaded_blobs = []
 
-        # 2. Configure the SDK to force a native image output from the Gemini model
-        config = types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            # Explicitly bypass configurable safety filters
-            safety_settings=[
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-            ],
-            image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=resolution),
-        )
+        try:
+            if input_image_paths:
+                # BRANCH 1: GCS Upload Enabled
+                if use_gcs_for_refs:
+                    storage_client = storage.Client(project=self.project_id)
+                    bucket = storage_client.bucket(gcs_bucket_name)
+                    timestamp = int(time.time())
 
-        async def _generate_single():
-            """
-            Helper function to execute a single generate_content call
-            with safety and None checks.
-            """
-            response = await asyncio.to_thread(
-                self.client.models.generate_content,
-                model=model_name,
-                contents=contents,
-                config=config,
+                    for i, img_path in enumerate(input_image_paths[:16]):
+                        try:
+                            with Image.open(img_path) as img:
+                                if img.mode in ("RGBA", "P"):
+                                    img = img.convert("RGB")
+
+                                buffered = BytesIO()
+                                img.save(buffered, format="JPEG")
+
+                                blob_name = f"realtime_inputs/ref_{timestamp}_{i}.jpg"
+                                blob = bucket.blob(blob_name)
+                                blob.upload_from_string(
+                                    buffered.getvalue(), content_type="image/jpeg"
+                                )
+                                uploaded_blobs.append(blob)
+
+                                gcs_uri = f"gs://{gcs_bucket_name}/{blob_name}"
+                                contents.append(
+                                    types.Part.from_uri(file_uri=gcs_uri, mime_type="image/jpeg")
+                                )
+                        except Exception as e:
+                            raise ValueError(
+                                f"Failed to process and upload input image {img_path}: {str(e)}"
+                            )
+
+                # BRANCH 2: Standard Inline Execution (SDK handles Base64 conversion automatically)
+                else:
+                    for img_path in input_image_paths[:16]:
+                        try:
+                            img = Image.open(img_path)
+                            contents.append(img)
+                        except Exception as e:
+                            raise ValueError(f"Failed to process input image {img_path}: {str(e)}")
+
+            # 2. Configure the SDK to force a native image output
+            # and disable all safety filters (as per user request)
+            config = types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                ],
+                image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=resolution),
             )
 
-            # Guard against empty candidates or blocked responses where response.parts is None
-            if not response.candidates:
-                raise RuntimeError("The model returned no response candidates.")
-
-            candidate = response.candidates[0]
-            if not candidate.content or not candidate.content.parts:
-                finish_reason = getattr(
-                    candidate, "finish_reason", FinishReason.FINISH_REASON_UNSPECIFIED
+            async def _generate_single():
+                """
+                Helper function to execute a single generate_content call
+                with safety and None checks.
+                """
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=model_name,
+                    contents=contents,
+                    config=config,
                 )
-                raise RuntimeError(
-                    f"Generation stopped or was blocked. Finish reason: {finish_reason.value}"
-                )
 
-            for part in candidate.content.parts:
-                if part.inline_data:
-                    return part.as_image()
+                # Guard against empty candidates or blocked responses where response.parts is None
+                if not response.candidates:
+                    raise RuntimeError("The model returned no response candidates.")
 
-            raise RuntimeError("No image data found in the response parts.")
+                candidate = response.candidates[0]
+                if not candidate.content or not candidate.content.parts:
+                    finish_reason = getattr(
+                        candidate, "finish_reason", FinishReason.FINISH_REASON_UNSPECIFIED
+                    )
+                    raise RuntimeError(
+                        f"Generation stopped or was blocked. Finish reason: {finish_reason.value}"
+                    )
 
-        # 3. Execute requests concurrently to fulfill the batch size parameter
-        try:
+                for part in candidate.content.parts:
+                    if part.inline_data:
+                        return part.as_image()
+
+                raise RuntimeError("No image data found in the response parts.")
+
+            # 3. Execute requests concurrently to fulfill the batch size parameter
             tasks = [_generate_single() for _ in range(batch_size)]
             generated_images = await asyncio.gather(*tasks)
             return generated_images
+
         except Exception as e:
             raise RuntimeError(f"API Generation Error: {str(e)}")
+
+        finally:
+            # 4. Mandatory Cleanup (Only triggers if blobs were actually uploaded)
+            for blob in uploaded_blobs:
+                try:
+                    blob.delete()
+                except Exception:
+                    pass
 
     # --- Asynchronous Google Cloud Batch API Helpers ---
 

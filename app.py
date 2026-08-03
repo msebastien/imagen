@@ -1,8 +1,8 @@
 """
 app.py
-Gradio User Interface and event wiring for Imagen AI Studio: Nano Banana Edition.
+Gradio User Interface and event wiring for Imagen AI Studio.
 Includes real-time generation, local history/caching, usage statistics,
-and asynchronous Google Cloud Batch API processing.
+Google Cloud Batch API processing, and BytePlus Seedream integration.
 """
 
 import gradio as gr
@@ -12,7 +12,7 @@ from datetime import datetime
 
 import database
 import config
-from api_client import NanoBananaClient
+from api_client import NanoBananaClient, BytePlusClient
 
 # Initialize local SQLite DB on startup
 database.init_db()
@@ -32,16 +32,25 @@ def load_settings():
                 return json.load(f)
         except Exception:
             pass
-    return {"api_key": "", "project_id": "", "gcs_bucket": "", "use_gcs_for_refs": False}
+    return {
+        "api_key": "",
+        "project_id": "",
+        "gcs_bucket": "",
+        "use_gcs_for_refs": False,
+        "byteplus_api_key": "",
+    }
 
 
-def save_settings(api_key: str, project_id: str, gcs_bucket: str, use_gcs_for_refs: bool):
+def save_settings(
+    api_key: str, project_id: str, gcs_bucket: str, use_gcs_for_refs: bool, byteplus_api_key: str
+):
     """Saves application settings to a local JSON file."""
     settings = {
         "api_key": api_key.strip(),
         "project_id": project_id.strip(),
         "gcs_bucket": gcs_bucket.strip(),
         "use_gcs_for_refs": use_gcs_for_refs,
+        "byteplus_api_key": byteplus_api_key.strip(),
     }
     try:
         with open(SETTINGS_FILE, "w") as f:
@@ -79,17 +88,19 @@ def estimate_batch_cost_display(model: str, resolution: str, batch_size: int) ->
 
 
 async def check_connection(api_key: str, project_id: str) -> str:
+    # Primarily checks Nano Banana; BytePlus connection is strictly validated at runtime
     client = NanoBananaClient(api_key, project_id)
     is_reachable = await client.check_reachability()
     if is_reachable:
-        return "🟢 **API Status:** Connected & Reachable"
-    return "🔴 **API Status:** Disconnected / Invalid Credentials"
+        return "🟢 **API Status:** Connected & Reachable (Google Cloud)"
+    return "🔴 **API Status:** Disconnected / Invalid Google Credentials"
 
 
 async def process_generation(
     engine: str,
     api_key: str,
     project_id: str,
+    byteplus_api_key: str,
     prompt: str,
     model: str,
     resolution: str,
@@ -105,6 +116,7 @@ async def process_generation(
         raise gr.Error("Batch size must be between 1 and 8.")
 
     try:
+        # Local
         if engine == "Local Inference":
             # Local inference path using the LocalImageGenerator class
             from api_client import LocalImageGenerator
@@ -117,6 +129,25 @@ async def process_generation(
             # Local models cost $0
             cost_per_img = 0
             stat_key = "LOCAL_COMPUTE"
+
+        # BytePlus ModelArk
+        elif engine == "BytePlus Cloud (Seedream)":
+            if not byteplus_api_key.strip():
+                raise gr.Error("Missing BytePlus API Key. Please provide it in Settings.")
+
+            img_paths = [img.name for img in input_images] if input_images else None
+
+            if img_paths and len(img_paths) > 14:
+                raise gr.Error("Maximum 14 reference images allowed for Seedream models.")
+
+            bp_client = BytePlusClient(byteplus_api_key)
+            images = await bp_client.generate_images_batch(
+                prompt, model, int(batch_size), resolution, aspect_ratio, img_paths
+            )
+            cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
+            stat_key = byteplus_api_key
+
+        # Google Vertex / AI Studio
         else:
             # Existing Cloud API Logic
             if not api_key.strip() and not project_id.strip():
@@ -168,7 +199,7 @@ async def process_generation(
     return saved_paths, *get_stats_display(stat_key)
 
 
-# --- Batch Processing Handler Functions ---
+# --- Batch Processing Handler Functions (Google Only) ---
 
 
 async def submit_batch_task(
@@ -414,8 +445,12 @@ with gr.Blocks() as ui:
 
                     # New Engine Toggle
                     engine_radio = gr.Radio(
-                        choices=["Cloud API (Nano Banana)", "Local Inference"],
-                        value="Cloud API (Nano Banana)",
+                        choices=[
+                            "Google Cloud (Nano Banana)",
+                            "BytePlus Cloud (Seedream)",
+                            "Local Inference",
+                        ],
+                        value="Google Cloud (Nano Banana)",
                         label="Inference Engine",
                     )
 
@@ -455,7 +490,7 @@ with gr.Blocks() as ui:
                     output_gallery = gr.Gallery(label="Generated Outputs", columns=2, height="auto")
 
         # --- Batch Queue Tab ---
-        with gr.Tab("Batch Queue (50% Discount)"):
+        with gr.Tab("Batch Queue (Google Models)"):
             gr.Markdown(
                 "Submit large or background image tasks to the Google Cloud Batch API. "
                 "Enjoy a **50% discount** on generation costs. "
@@ -545,27 +580,31 @@ with gr.Blocks() as ui:
 
         # --- Settings Tab ---
         with gr.Tab("Settings"):
-            gr.Markdown("### Authentication & Routing")
+            gr.Markdown("### 1. Google Cloud Platform Authentication")
             api_key_input = gr.Textbox(
-                label="API Key",
+                label="Gemini API Key",
                 type="password",
-                placeholder="Enter Gemini API Key...",
                 value=app_settings.get("api_key", ""),
             )
             project_id_input = gr.Textbox(
                 label="Google Cloud Project ID (Vertex AI Postpay Routing)",
-                placeholder="YOUR_PROJECT_ID (Optional)",
                 value=app_settings.get("project_id", ""),
             )
             gcs_bucket_input = gr.Textbox(
-                label="Google Cloud Storage Bucket Name (Batch API)",
-                placeholder="e.g. my-imagen-batch-bucket",
+                label="Google Cloud Storage Bucket Name",
                 value=app_settings.get("gcs_bucket", ""),
             )
             use_gcs_for_refs_input = gr.Checkbox(
                 label="Upload Real-Time Reference Images to Google Cloud Storage "
                 "(Bypasses payload limits)",
                 value=app_settings.get("use_gcs_for_refs", False),
+            )
+
+            gr.Markdown("### 2. BytePlus Authentication")
+            byteplus_api_key_input = gr.Textbox(
+                label="BytePlus API Key (Seedream V3 Endpoint)",
+                type="password",
+                value=app_settings.get("byteplus_api_key", ""),
             )
 
             with gr.Row():
@@ -608,7 +647,13 @@ with gr.Blocks() as ui:
     # Save Settings
     btn_save_settings.click(
         fn=save_settings,
-        inputs=[api_key_input, project_id_input, gcs_bucket_input, use_gcs_for_refs_input],
+        inputs=[
+            api_key_input,
+            project_id_input,
+            gcs_bucket_input,
+            use_gcs_for_refs_input,
+            byteplus_api_key_input,
+        ],
     )
 
     # Connection Test & Clear Prompt
@@ -650,6 +695,8 @@ with gr.Blocks() as ui:
                     choices=["NO MODELS FOUND IN /models"], value="NO MODELS FOUND IN /models"
                 )
             return gr.update(choices=local_models, value=local_models[0])
+        elif engine_choice == "BytePlus Cloud (Seedream)":
+            return gr.update(choices=config.SEEDREAM_MODELS, value=config.SEEDREAM_MODELS[0])
         else:
             return gr.update(choices=config.AVAILABLE_MODELS, value=config.AVAILABLE_MODELS[0])
 
@@ -662,6 +709,7 @@ with gr.Blocks() as ui:
             engine_radio,
             api_key_input,
             project_id_input,
+            byteplus_api_key_input,
             prompt_box,
             model_dropdown,
             res_radio,

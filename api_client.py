@@ -1,8 +1,8 @@
 """
 api_client.py
-Handles asynchronous interactions with the Nano Banana API
-via Google Cloud AI Platform (formerly Vertex AI).
-Includes decoupled methods for standard Generation and Google Cloud Batch API processing.
+Handles asynchronous interactions with the Nano Banana API via Google Cloud AI Platform (formerly Vertex AI),
+BytePlus ModelArk API for Seedream models, and Local Inference pipelines.
+For the Nano Banana API, it also includes decoupled methods for standard Generation and Google Cloud Batch API processing.
 """
 
 import os
@@ -10,14 +10,152 @@ import json
 import time
 import asyncio
 import base64
+import requests
 from typing import List, Optional
 from io import BytesIO
+from PIL import Image
+
+# Google GenAI Imports
 from google import genai
 from google.genai import types
 from google.genai.types import FinishReason
-from PIL import Image
 from google.cloud import storage
 from google.cloud.storage.blob import Blob
+
+
+class BytePlusClient:
+    """
+    Handles interactions with the BytePlus ModelArk API for Seedream models.
+    """
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key.strip()
+        # Standard BytePlus ModelArk V3 endpoint for Image Generation
+        self.base_url = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
+
+    async def check_reachability(self) -> bool:
+        """Lightweight verification logic (skipped for BytePlus to avoid arbitrary inference costs)."""
+        return True if self.api_key else False
+
+    async def generate_images_batch(
+        self,
+        prompt: str,
+        model_name: str,
+        batch_size: int,
+        resolution: str,
+        aspect_ratio: str,
+        input_image_paths: Optional[List[str]] = None,
+    ) -> List[Image.Image]:
+        """
+        Executes a real-time batch image generation request using BytePlus.
+        Runs standard synchronous requests cleanly in a background thread to prevent UI freezing.
+        """
+        return await asyncio.to_thread(
+            self._generate_sync,
+            prompt,
+            model_name,
+            batch_size,
+            resolution,
+            aspect_ratio,
+            input_image_paths,
+        )
+
+    def _calculate_dimensions(self, resolution: str, aspect_ratio: str):
+        import math
+
+        # 1. Determine base target area (1K defaults to 1024x1024)
+        base_dim = 1024
+        if resolution == "2K":
+            base_dim = 2048
+        elif resolution == "4K":
+            base_dim = 4096
+
+        target_area = base_dim * base_dim
+
+        # 2. Parse the string aspect ratio (e.g., "16:9")
+        w_ratio, h_ratio = map(float, aspect_ratio.split(":"))
+        ratio = w_ratio / h_ratio
+
+        # 3. Compute dimensions maintaining total pixel count
+        ideal_height = math.sqrt(target_area / ratio)
+        ideal_width = ideal_height * ratio
+
+        # 4. Stable Diffusion requires dimensions to be multiples of 8
+        width = int(round(ideal_width / 8.0) * 8)
+        height = int(round(ideal_height / 8.0) * 8)
+
+        return width, height
+
+    def _generate_sync(
+        self,
+        prompt: str,
+        model_name: str,
+        batch_size: int,
+        resolution: str,
+        aspect_ratio: str,
+        input_image_paths: Optional[List[str]],
+    ) -> List[Image.Image]:
+        # 1. Translate string resolutions and aspect ratios to explicit pixel targets
+        # Dynamically calculate the aspect-ratio aware dimensions
+        width, height = self._calculate_dimensions(resolution, aspect_ratio)
+
+        # 2. Construct OpenAI-compatible ModelArk JSON payload
+        payload = {
+            "model": model_name,
+            "prompt": prompt,
+            "size": f"{width}x{height}",
+            "n": batch_size,
+            "response_format": "b64_json",
+        }
+
+        # 3. Handle base64 Encoding for multi-image references
+        if input_image_paths:
+            b64_images = []
+            for path in input_image_paths[:14]:  # Most Seedream models cap around 10-14 references
+                try:
+                    with Image.open(path) as img:
+                        if img.mode in ("RGBA", "P"):
+                            img = img.convert("RGB")
+                        buffered = BytesIO()
+                        img.save(buffered, format="JPEG")
+                        b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                        b64_images.append(f"data:image/jpeg;base64,{b64_str}")
+                except Exception as e:
+                    raise ValueError(f"Failed to process input image {path}: {str(e)}")
+
+            if b64_images:
+                payload["image"] = b64_images if len(b64_images) > 1 else b64_images[0]
+
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
+        # 4. Execute the network request
+        try:
+            # Seedream Pro models take deep-reasoning paths; use a lengthy timeout.
+            response = requests.post(self.base_url, headers=headers, json=payload, timeout=300)
+            response.raise_for_status()
+            data = response.json()
+
+            images = []
+            for item in data.get("data", []):
+                if "b64_json" in item:
+                    img_bytes = base64.b64decode(item["b64_json"])
+                    images.append(Image.open(BytesIO(img_bytes)))
+                elif "url" in item:
+                    res = requests.get(item["url"], timeout=30)
+                    images.append(Image.open(BytesIO(res.content)))
+
+            if not images:
+                raise RuntimeError("No image data found in the BytePlus API response.")
+            return images
+
+        except requests.exceptions.RequestException as e:
+            err_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    err_msg += f" - Response JSON: {json.dumps(e.response.json())}"
+                except:
+                    err_msg += f" - Response Text: {e.response.text}"
+            raise RuntimeError(f"BytePlus API Error: {err_msg}")
 
 
 class NanoBananaClient:

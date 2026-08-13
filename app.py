@@ -38,6 +38,18 @@ def load_settings():
     }
 
 
+def load_settings_ui():
+    """Loads settings from settings.json to dynamically populate UI components on page reload."""
+    s = load_settings()
+    return (
+        s.get("google_api_key", ""),
+        s.get("google_project_id", ""),
+        s.get("gcs_bucket", ""),
+        s.get("use_gcs_for_refs", False),
+        s.get("byteplus_api_key", ""),
+    )
+
+
 def save_settings(
     google_api_key: str,
     google_project_id: str,
@@ -833,8 +845,17 @@ with gr.Blocks() as ui:
         ],
     )
 
-    # Auto-load history and stats on app startup / page refresh
-    ui.load(fn=load_history, outputs=[history_gallery, history_table]).then(
+    # Reload settings into UI inputs, history, and usage statistics on app startup / page refresh
+    ui.load(
+        fn=load_settings_ui,
+        outputs=[
+            google_api_key_input,
+            google_project_id_input,
+            gcs_bucket_input,
+            use_gcs_for_refs_input,
+            byteplus_api_key_input,
+        ],
+    ).then(fn=load_history, outputs=[history_gallery, history_table]).then(
         fn=load_initial_stats,
         inputs=[google_api_key_input, google_project_id_input],
         outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],

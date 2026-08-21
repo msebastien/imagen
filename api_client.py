@@ -23,12 +23,16 @@ from google.genai.types import FinishReason
 from google.cloud import storage
 from google.cloud.storage.blob import Blob
 
+# BytePlus ModelArk Imports
+#from byteplussdkarkruntime import Ark
+
 import utils
 
 
 class BytePlusClient:
     """
     Handles interactions with the BytePlus ModelArk API for Seedream models.
+    Documentation: https://docs.byteplus.com/en/docs/ModelArk/1824121
     """
 
     def __init__(self, api_key: str):
@@ -253,19 +257,19 @@ class NanoBananaClient:
                 safety_settings=[
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        threshold=types.HarmBlockThreshold.OFF,
                     ),
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        threshold=types.HarmBlockThreshold.OFF,
                     ),
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        threshold=types.HarmBlockThreshold.OFF,
                     ),
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        threshold=types.HarmBlockThreshold.OFF,
                     ),
                 ],
                 image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=resolution),
@@ -380,19 +384,19 @@ class NanoBananaClient:
                     "safetySettings": [
                         {
                             "category": "HARM_CATEGORY_HARASSMENT",
-                            "threshold": "BLOCK_NONE",
+                            "threshold": "OFF",
                         },
                         {
                             "category": "HARM_CATEGORY_HATE_SPEECH",
-                            "threshold": "BLOCK_NONE",
+                            "threshold": "OFF",
                         },
                         {
                             "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                            "threshold": "BLOCK_NONE",
+                            "threshold": "OFF",
                         },
                         {
                             "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                            "threshold": "BLOCK_NONE",
+                            "threshold": "OFF",
                         },
                     ],
                 }

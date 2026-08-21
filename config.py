@@ -23,7 +23,7 @@ SEEDREAM_MODELS = [
 ]
 
 RESOLUTIONS = ["1K", "2K", "4K"]
-ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "2:3", "3:2"]
+ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "5:4", "2:3", "3:2"]
 
 # Estimated cost table in integer cents (1 unit = $0.01)
 # Includes Nano Banana baseline estimates and BytePlus per-image pricing.

@@ -5,6 +5,9 @@ pillow >= 12.3.0
 google-genai >= 2.12.1
 google-cloud-storage >= 3.13.0
 
+# BytePlus ModelArk API
+byteplus-python-sdk-v2
+
 # Local inference
 torch
 torchvision

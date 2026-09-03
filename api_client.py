@@ -19,7 +19,7 @@ from PIL import Image
 # Google GenAI Imports
 from google import genai
 from google.genai import types
-from google.genai.types import FinishReason
+from google.genai.types import HttpOptions, FinishReason
 from google.cloud import storage
 from google.cloud.storage.blob import Blob
 
@@ -144,10 +144,17 @@ class BytePlusClient:
 
 class NanoBananaClient:
     # 1. Add location as a parameter (defaulting to us-central1 for maximum model compatibility)
-    def __init__(self, api_key: str = "", project_id: str = "", location: str = "global"):
+    def __init__(
+        self,
+        api_key: str = "",
+        project_id: str = "",
+        location: str = "global",
+        use_flex_paygo: bool = False,
+    ):
         self.api_key = api_key.strip()
         self.project_id = project_id.strip()
         self.location = location.strip()
+        self.use_flex_paygo = use_flex_paygo
         self.client = self._initialize_client()
 
     def _initialize_client(self):
@@ -155,15 +162,33 @@ class NanoBananaClient:
         Initializes the Agent Platform client.
         Routes through Google Cloud if Project ID is provided.
         """
-        try:
-            if self.project_id:
-                # Corrected: Use enterprise=True for Gemini Enterprise Agent Platform (Vertex AI)
-                return genai.Client(
-                    enterprise=True, project=self.project_id, location=self.location
-                )
-            elif self.api_key:
-                return genai.Client(api_key=self.api_key)
+        if not self.api_key and not self.project_id:
             return None
+
+        # Use enterprise=True for Gemini Enterprise Agent Platform (Vertex AI)
+        client_kwargs = {
+            "enterprise": True,
+            "location": self.location,
+        }
+
+        # Use Project ID if provided, else fallback to API Key for direct access
+        if self.project_id:
+            client_kwargs["project"] = self.project_id
+        elif self.api_key:
+            client_kwargs["api_key"] = self.api_key
+
+        # Apply Flex PayGo routing headers for Vertex AI if enabled
+        if self.use_flex_paygo:
+            client_kwargs["http_options"] = HttpOptions(
+                api_version="v1",
+                headers={
+                    "X-Vertex-AI-LLM-Request-Type": "shared",
+                    "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
+                },
+            )
+
+        try:
+            return genai.Client(**client_kwargs)
         except Exception:
             return None
 

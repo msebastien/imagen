@@ -48,6 +48,9 @@ BATCH_COST_TABLE_CENTS = {
     "gemini-2.5-flash-image": {"1K": 1, "2K": 2, "4K": 4},
 }
 
+# Flex PayGo discount multiplier (50% discount)
+FLEX_PAYGO_DISCOUNT = 0.5
+
 # --- Local Models ---
 LOCAL_MODELS_DIR = "models"
 os.makedirs(LOCAL_MODELS_DIR, exist_ok=True)

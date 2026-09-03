@@ -34,6 +34,7 @@ def load_settings():
         "google_project_id": "",
         "gcs_bucket": "",
         "use_gcs_for_refs": False,
+        "use_flex_paygo": False,
         "byteplus_api_key": "",
     }
 
@@ -46,6 +47,7 @@ def load_settings_ui():
         s.get("google_project_id", ""),
         s.get("gcs_bucket", ""),
         s.get("use_gcs_for_refs", False),
+        s.get("use_flex_paygo", False),
         s.get("byteplus_api_key", ""),
     )
 
@@ -55,6 +57,7 @@ def save_settings(
     google_project_id: str,
     gcs_bucket: str,
     use_gcs_for_refs: bool,
+    use_flex_paygo: bool,
     byteplus_api_key: str,
 ):
     """Saves application settings to a local JSON file."""
@@ -63,6 +66,7 @@ def save_settings(
         "google_project_id": google_project_id.strip(),
         "gcs_bucket": gcs_bucket.strip(),
         "use_gcs_for_refs": use_gcs_for_refs,
+        "use_flex_paygo": use_flex_paygo,
         "byteplus_api_key": byteplus_api_key.strip(),
     }
     try:
@@ -81,11 +85,18 @@ def format_currency(cents: int) -> str:
     return f"${cents / 100:.2f}"
 
 
-def estimate_cost_display(model: str, resolution: str, batch_size: int) -> str:
+def estimate_cost_display(
+    engine: str, model: str, resolution: str, batch_size: int, use_flex_paygo: bool
+) -> str:
     if not batch_size or batch_size < 1:
         batch_size = 1
 
     cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
+
+    # Apply Flex PayGo 50% discount if utilizing Google Cloud engine and enabled in settings
+    if engine == "Google Cloud (Nano Banana)" and use_flex_paygo:
+        cost_per_img = cost_per_img * config.FLEX_PAYGO_DISCOUNT
+
     total_cents = cost_per_img * batch_size
     return f"**Estimated Cost:** {format_currency(total_cents)}"
 
@@ -156,6 +167,7 @@ async def process_generation(
     google_api_key: str,
     google_project_id: str,
     byteplus_api_key: str,
+    use_flex_paygo: bool,
     prompt: str,
     model: str,
     resolution: str,
@@ -220,7 +232,9 @@ async def process_generation(
             if img_paths and len(img_paths) > 16:
                 raise gr.Error("Maximum 16 reference images allowed.")
 
-            client = NanoBananaClient(google_api_key, google_project_id)
+            client = NanoBananaClient(
+                api_key=google_api_key, project_id=google_project_id, use_flex_paygo=use_flex_paygo
+            )
             images = await client.generate_images_batch(
                 prompt,
                 model,
@@ -233,6 +247,8 @@ async def process_generation(
             )
 
             cost_per_img = config.COST_TABLE_CENTS.get(model, {}).get(resolution, 0)
+            if use_flex_paygo:
+                cost_per_img = cost_per_img * config.FLEX_PAYGO_DISCOUNT
             stat_key = google_api_key if google_api_key else google_project_id
     except Exception as e:
         raise gr.Error(str(e))
@@ -243,8 +259,8 @@ async def process_generation(
     os.makedirs("outputs", exist_ok=True)
 
     for i, img in enumerate(images):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = f"outputs/img_{timestamp}_{i}.png"
+        date = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = f"outputs/img_{date}_{i}.png"
         img.save(filepath)
         saved_paths.append(filepath)
         database.cache_image(prompt, filepath, model, resolution)
@@ -665,6 +681,11 @@ with gr.Blocks() as ui:
                 "(Bypasses payload limits)",
                 value=app_settings.get("use_gcs_for_refs", False),
             )
+            use_flex_paygo_input = gr.Checkbox(
+                label="Enable Gemini Flex PayGo "
+                "(50% Cost Reduction for Vertex AI On-Demand, tolerance for higher latency)",
+                value=app_settings.get("use_flex_paygo", False),
+            )
 
             gr.Markdown("### 2. BytePlus Authentication")
             byteplus_api_key_input = gr.Textbox(
@@ -697,7 +718,7 @@ with gr.Blocks() as ui:
     # --- Event Wiring ---
 
     # Real-Time Cost Estimation
-    inputs_for_cost = [model_dropdown, res_radio, batch_slider]
+    inputs_for_cost = [model_dropdown, res_radio, batch_slider, use_flex_paygo_input]
     for component in inputs_for_cost:
         component.change(fn=estimate_cost_display, inputs=inputs_for_cost, outputs=cost_indicator)
 
@@ -718,6 +739,7 @@ with gr.Blocks() as ui:
             google_project_id_input,
             gcs_bucket_input,
             use_gcs_for_refs_input,
+            use_flex_paygo_input,
             byteplus_api_key_input,
         ],
     )
@@ -779,6 +801,7 @@ with gr.Blocks() as ui:
             google_api_key_input,
             google_project_id_input,
             byteplus_api_key_input,
+            use_flex_paygo_input,
             prompt_box,
             model_dropdown,
             res_radio,

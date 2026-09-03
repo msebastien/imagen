@@ -401,6 +401,7 @@ class UILayout:
                 self.google_project_id_input,
                 self.gcs_bucket_input,
                 self.use_gcs_for_refs_input,
+                self.use_flex_paygo_input,
                 self.byteplus_api_key_input,
             ],
         ).then(fn=h["load_history"], outputs=[self.history_gallery, self.history_table]).then(

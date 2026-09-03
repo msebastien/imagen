@@ -1,6 +1,6 @@
 """
 app.py
-Gradio User Interface and event wiring for Imagen AI Studio.
+Backend controller and business logic for Imagen AI Studio.
 Includes real-time generation, local history/caching, usage statistics,
 Google Cloud Batch API processing, and BytePlus Seedream integration.
 """
@@ -13,6 +13,7 @@ from datetime import datetime
 import database
 import config
 from api_client import NanoBananaClient, BytePlusClient
+from ui_layout import UILayout
 
 # Initialize local SQLite DB on startup
 database.init_db()
@@ -505,384 +506,43 @@ def handle_clear_cache():
     )
 
 
-# --- Gradio UI Layout ---
-with gr.Blocks() as ui:
-    gr.Markdown("# 🍌 Imagen AI Studio")
-    gemini_status_indicator = gr.Markdown(config.API_STATUS_MESSAGES["gemini"]["default"])
-    byteplus_status_indicator = gr.Markdown(config.API_STATUS_MESSAGES["byteplus"]["default"])
-
-    with gr.Tabs():
-        # --- Real-Time Generation Tab ---
-        with gr.Tab("Generate (On-Demand)"):
-            with gr.Row():
-                with gr.Column(scale=2):
-                    prompt_box = gr.Textbox(
-                        label="Generation Prompt",
-                        placeholder="Describe the image you want to create in detail...",
-                        lines=4,
-                    )
-                    with gr.Row():
-                        btn_send = gr.Button("🚀 Send Request", variant="primary")
-                        btn_clear_prompt = gr.Button("🗑️ Clear Prompt")
-
-                    # New Engine Toggle
-                    engine_radio = gr.Radio(
-                        choices=[
-                            "Google Cloud (Nano Banana)",
-                            "BytePlus Cloud (Seedream)",
-                            "Local Inference",
-                        ],
-                        value="Google Cloud (Nano Banana)",
-                        label="Inference Engine",
-                    )
-
-                    with gr.Accordion("Advanced Parameters", open=True):
-                        model_dropdown = gr.Dropdown(
-                            choices=config.GEMINI_IMAGE_MODELS,
-                            value=config.GEMINI_IMAGE_MODELS[0],
-                            label="Model",
-                        )
-                        with gr.Row():
-                            res_radio = gr.Radio(
-                                choices=config.RESOLUTIONS,
-                                value="2K",
-                                label="Resolution",
-                            )
-                            ar_dropdown = gr.Dropdown(
-                                choices=config.ASPECT_RATIOS,
-                                value="16:9",
-                                label="Aspect Ratio",
-                            )
-                            batch_slider = gr.Slider(
-                                minimum=1,
-                                maximum=8,
-                                step=1,
-                                value=1,
-                                label="Batch Size",
-                            )
-
-                        input_gallery = gr.File(
-                            label="Input/Reference Images (Max 16)",
-                            file_count="multiple",
-                            file_types=["image"],
-                        )
-                        cost_indicator = gr.Markdown("**Estimated Cost:** $0.00")
-
-                with gr.Column(scale=3):
-                    output_gallery = gr.Gallery(label="Generated Outputs", columns=2, height="auto")
-
-        # --- Batch Queue Tab ---
-        with gr.Tab("Batch Queue (Google Models)"):
-            gr.Markdown(
-                "Submit large or background image tasks to the Google Cloud Batch API. "
-                "Enjoy a **50% discount** on generation costs. "
-                "Results are saved in Google Cloud Storage."
-            )
-            with gr.Row():
-                # Left Column: Submission Form
-                with gr.Column(scale=2):
-                    b_prompt_box = gr.Textbox(
-                        label="Batch Prompt",
-                        placeholder="Describe the batch image generation prompt...",
-                        lines=4,
-                    )
-                    with gr.Row():
-                        b_btn_send = gr.Button("🚀 Submit Batch Job", variant="primary")
-                        b_btn_clear_prompt = gr.Button("🗑️ Clear Prompt")
-
-                    with gr.Accordion("Advanced Parameters", open=True):
-                        b_model_dropdown = gr.Dropdown(
-                            choices=config.GEMINI_IMAGE_MODELS,
-                            value=config.GEMINI_IMAGE_MODELS[0],
-                            label="Model",
-                        )
-                        with gr.Row():
-                            b_res_radio = gr.Radio(
-                                choices=config.RESOLUTIONS,
-                                value="2K",
-                                label="Resolution",
-                            )
-                            b_ar_dropdown = gr.Dropdown(
-                                choices=config.ASPECT_RATIOS,
-                                value="16:9",
-                                label="Aspect Ratio",
-                            )
-                            b_batch_slider = gr.Slider(
-                                minimum=1,
-                                maximum=100,
-                                step=1,
-                                value=10,
-                                label="Batch Size",
-                            )
-
-                        b_input_gallery = gr.File(
-                            label="Input/Reference Images (Max 16)",
-                            file_count="multiple",
-                            file_types=["image"],
-                        )
-
-                        b_cost_indicator = gr.Markdown("**Estimated Batch Cost (~50% off):** $0.00")
-
-                    b_status_msg = gr.Textbox(label="Submission Status", interactive=False)
-
-                # Right Column: Dashboard & Fetching
-                with gr.Column(scale=3):
-                    gr.Markdown("### Active Job Dashboard")
-                    job_table = gr.Dataframe(
-                        headers=["Job ID", "Prompt Preview", "Status"],
-                        interactive=False,
-                        wrap=True,
-                    )
-                    b_refresh_btn = gr.Button("🔄 Refresh Statuses")
-
-                    gr.Markdown("### Manage Completed Results")
-                    with gr.Row():
-                        fetch_job_id = gr.Textbox(
-                            label="Job ID", placeholder="Paste Job ID here...", scale=2
-                        )
-                        fetch_btn = gr.Button("📥 Download Images", scale=1)
-                        discard_btn = gr.Button("🗑️ Discard Job", scale=1, variant="stop")
-
-                    fetch_msg = gr.Textbox(label="Action Status", interactive=False)
-                    batch_gallery = gr.Gallery(
-                        label="Batch Output Gallery", columns=3, height="auto"
-                    )
-
-        # --- History & Cache Tab ---
-        with gr.Tab("History & Cache"):
-            btn_refresh_history = gr.Button("🔄 Refresh History")
-
-            history_gallery = gr.Gallery(label="Image Cache", columns=4, height="auto")
-
-            history_table = gr.Dataframe(
-                headers=["Prompt", "Model", "Resolution", "Date"],
-                interactive=False,
-                wrap=True,
-            )
-
-        # --- Settings Tab ---
-        with gr.Tab("Settings"):
-            gr.Markdown("### 1. Google Cloud Platform Authentication")
-            google_api_key_input = gr.Textbox(
-                label="Gemini API Key",
-                type="password",
-                value=app_settings.get("google_api_key", ""),
-            )
-            google_project_id_input = gr.Textbox(
-                label="Google Cloud Project ID (Vertex AI Postpay Routing)",
-                value=app_settings.get("google_project_id", ""),
-            )
-            gcs_bucket_input = gr.Textbox(
-                label="Google Cloud Storage Bucket Name",
-                value=app_settings.get("gcs_bucket", ""),
-            )
-            use_gcs_for_refs_input = gr.Checkbox(
-                label="Upload Real-Time Reference Images to Google Cloud Storage "
-                "(Bypasses payload limits)",
-                value=app_settings.get("use_gcs_for_refs", False),
-            )
-            use_flex_paygo_input = gr.Checkbox(
-                label="Enable Gemini Flex PayGo "
-                "(50% Cost Reduction for Vertex AI On-Demand, tolerance for higher latency)",
-                value=app_settings.get("use_flex_paygo", False),
-            )
-
-            gr.Markdown("### 2. BytePlus Authentication")
-            byteplus_api_key_input = gr.Textbox(
-                label="BytePlus API Key (Seedream V3 Endpoint)",
-                type="password",
-                value=app_settings.get("byteplus_api_key", ""),
-            )
-
-            with gr.Row():
-                btn_save_settings = gr.Button("💾 Save Settings", variant="primary")
-                btn_test_conn = gr.Button("Test Connection")
-
-            gr.Markdown("### Cache Management")
-            btn_clear_cache = gr.Button("Clear SQLite Image Cache", variant="stop")
-
-        # --- Stats Tab ---
-        with gr.Tab("Usage Statistics"):
-            gr.Markdown(
-                "Metrics are tied to your specific API Key / Project ID. "
-                "Monthly counters reset on the 1st."
-            )
-            with gr.Row():
-                stat_tot_img = gr.Number(label="Total Images Generated", interactive=False)
-                stat_mon_img = gr.Number(label="Images Generated This Month", interactive=False)
-            with gr.Row():
-                stat_tot_cost = gr.Textbox(label="Total Cost (USD)", interactive=False)
-                stat_mon_cost = gr.Textbox(label="Monthly Cost (USD)", interactive=False)
-            btn_refresh_stats = gr.Button("Refresh Statistics")
-
-    # --- Event Wiring ---
-
-    # Real-Time Cost Estimation
-    inputs_for_cost = [model_dropdown, res_radio, batch_slider, use_flex_paygo_input]
-    for component in inputs_for_cost:
-        component.change(fn=estimate_cost_display, inputs=inputs_for_cost, outputs=cost_indicator)
-
-    # Batch Cost Estimation
-    inputs_for_batch_cost = [b_model_dropdown, b_res_radio, b_batch_slider]
-    for component in inputs_for_batch_cost:
-        component.change(
-            fn=estimate_batch_cost_display,
-            inputs=inputs_for_batch_cost,
-            outputs=b_cost_indicator,
-        )
-
-    # Save Settings
-    btn_save_settings.click(
-        fn=save_settings,
-        inputs=[
-            google_api_key_input,
-            google_project_id_input,
-            gcs_bucket_input,
-            use_gcs_for_refs_input,
-            use_flex_paygo_input,
-            byteplus_api_key_input,
-        ],
-    )
-
-    # Connection Test & Clear Prompt
-    btn_test_conn.click(
-        fn=check_connection_all,
-        inputs=[google_api_key_input, google_project_id_input, byteplus_api_key_input],
-        outputs=[gemini_status_indicator, byteplus_status_indicator],
-    )
-
-    btn_clear_prompt.click(fn=clear_ui_prompt, outputs=prompt_box)
-    b_btn_clear_prompt.click(fn=clear_ui_prompt, outputs=b_prompt_box)
-
-    # Cache Management
-    btn_clear_cache.click(
-        fn=handle_clear_cache,
-        outputs=[
-            gemini_status_indicator,
-            byteplus_status_indicator,
-            history_gallery,
-            history_table,
-        ],
-    )
-
-    # Usage Stats
-    btn_refresh_stats.click(
-        fn=load_initial_stats,
-        inputs=[google_api_key_input, google_project_id_input],
-        outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
-    )
-
-    # History Refresh
-    btn_refresh_history.click(fn=load_history, outputs=[history_gallery, history_table])
-
-    # Dynamic Model List based on Engine
-    def update_model_list(engine_choice):
-        if engine_choice == "Local Inference":
-            local_models = config.get_local_models()
-            if not local_models:
-                return gr.update(
-                    choices=["NO MODELS FOUND IN /models"], value="NO MODELS FOUND IN /models"
-                )
-            return gr.update(choices=local_models, value=local_models[0])
-        elif engine_choice == "BytePlus Cloud (Seedream)":
-            return gr.update(choices=config.SEEDREAM_MODELS, value=config.SEEDREAM_MODELS[0])
-        else:
+# Dynamic Model List based on Engine
+def update_model_list(engine_choice):
+    if engine_choice == "Local Inference":
+        local_models = config.get_local_models()
+        if not local_models:
             return gr.update(
-                choices=config.GEMINI_IMAGE_MODELS, value=config.GEMINI_IMAGE_MODELS[0]
+                choices=["NO MODELS FOUND IN /models"], value="NO MODELS FOUND IN /models"
             )
+        return gr.update(choices=local_models, value=local_models[0])
+    elif engine_choice == "BytePlus Cloud (Seedream)":
+        return gr.update(choices=config.SEEDREAM_MODELS, value=config.SEEDREAM_MODELS[0])
+    else:
+        return gr.update(choices=config.GEMINI_IMAGE_MODELS, value=config.GEMINI_IMAGE_MODELS[0])
 
-    engine_radio.change(fn=update_model_list, inputs=engine_radio, outputs=model_dropdown)
 
-    # Real-Time Generation Execution
-    btn_send.click(
-        fn=process_generation,
-        inputs=[
-            engine_radio,
-            google_api_key_input,
-            google_project_id_input,
-            byteplus_api_key_input,
-            use_flex_paygo_input,
-            prompt_box,
-            model_dropdown,
-            res_radio,
-            ar_dropdown,
-            batch_slider,
-            gcs_bucket_input,
-            use_gcs_for_refs_input,
-            input_gallery,
-        ],
-        outputs=[
-            output_gallery,
-            stat_tot_img,
-            stat_mon_img,
-            stat_tot_cost,
-            stat_mon_cost,
-        ],
-    ).then(fn=load_history, outputs=[history_gallery, history_table])
+# --- Application Initialization ---
+app_handlers = {
+    "estimate_cost_display": estimate_cost_display,
+    "estimate_batch_cost_display": estimate_batch_cost_display,
+    "save_settings": save_settings,
+    "check_connection_all": check_connection_all,
+    "clear_ui_prompt": clear_ui_prompt,
+    "handle_clear_cache": handle_clear_cache,
+    "load_initial_stats": load_initial_stats,
+    "load_history": load_history,
+    "update_model_list": update_model_list,
+    "process_generation": process_generation,
+    "submit_batch_task": submit_batch_task,
+    "refresh_job_statuses": refresh_job_statuses,
+    "fetch_completed_job": fetch_completed_job,
+    "discard_batch_job": discard_batch_job,
+    "load_settings_ui": load_settings_ui,
+}
 
-    # Batch Job Execution & Dashboard Wiring
-    b_btn_send.click(
-        fn=submit_batch_task,
-        inputs=[
-            google_api_key_input,
-            google_project_id_input,
-            b_prompt_box,
-            b_model_dropdown,
-            b_res_radio,
-            b_ar_dropdown,
-            b_batch_slider,
-            gcs_bucket_input,
-            b_input_gallery,
-        ],
-        outputs=[job_table, b_status_msg],
-    )
+ui_layout = UILayout(app_settings, app_handlers)
+ui = ui_layout.build()
 
-    b_refresh_btn.click(
-        fn=refresh_job_statuses,
-        inputs=[google_api_key_input, google_project_id_input],
-        outputs=[job_table],
-    )
-
-    # Batch File Fetching & Cleanup
-    fetch_btn.click(
-        fn=fetch_completed_job,
-        inputs=[google_api_key_input, google_project_id_input, fetch_job_id, gcs_bucket_input],
-        outputs=[
-            batch_gallery,
-            fetch_msg,
-            stat_tot_img,
-            stat_mon_img,
-            stat_tot_cost,
-            stat_mon_cost,
-            job_table,  # Send the updated Dashboard UI table
-        ],
-    ).then(fn=load_history, outputs=[history_gallery, history_table])
-
-    # Discard Batch Job without downloading
-    discard_btn.click(
-        fn=discard_batch_job,
-        inputs=[google_api_key_input, google_project_id_input, fetch_job_id, gcs_bucket_input],
-        outputs=[
-            fetch_msg,
-            job_table,
-        ],
-    )
-
-    # Reload settings into UI inputs, history, and usage statistics on app startup / page refresh
-    ui.load(
-        fn=load_settings_ui,
-        outputs=[
-            google_api_key_input,
-            google_project_id_input,
-            gcs_bucket_input,
-            use_gcs_for_refs_input,
-            byteplus_api_key_input,
-        ],
-    ).then(fn=load_history, outputs=[history_gallery, history_table]).then(
-        fn=load_initial_stats,
-        inputs=[google_api_key_input, google_project_id_input],
-        outputs=[stat_tot_img, stat_mon_img, stat_tot_cost, stat_mon_cost],
-    )
 
 if __name__ == "__main__":
     ui.launch(

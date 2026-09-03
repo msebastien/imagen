@@ -24,7 +24,7 @@ from google.cloud import storage
 from google.cloud.storage.blob import Blob
 
 # BytePlus ModelArk Imports
-#from byteplussdkarkruntime import Ark
+# from byteplussdkarkruntime import Ark
 
 import utils
 
@@ -90,6 +90,8 @@ class BytePlusClient:
             "size": f"{width}x{height}",
             "n": batch_size,
             "response_format": "b64_json",
+            # "output_format": "png",
+            "watermark": False,
         }
 
         # 3. Handle base64 Encoding for multi-image references

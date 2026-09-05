@@ -646,12 +646,13 @@ class LocalImageGenerator:
                 # sd.cpp handles memory mapping and Vulkan offloading automatically
                 # based on its compilation flags.
                 pipe = StableDiffusion(model_path=self.model_path, n_threads=8)
-                images = pipe.txt2img(
+                images = pipe.generate_image(
                     prompt=prompt,
                     sample_steps=20,
                     width=width,
                     height=height,
                     batch_count=batch_size,
+                    vae_tiling=True
                 )
                 del pipe
 

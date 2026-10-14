@@ -26,7 +26,7 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy the application source code
-COPY app.py api_client.py config.py database.py ./
+COPY *.py ./
 
 # Patch app.py to bind to 0.0.0.0 instead of 127.0.0.1 for container access
 RUN sed -i 's/server_name="127.0.0.1"/server_name="0.0.0.0"/' app.py
